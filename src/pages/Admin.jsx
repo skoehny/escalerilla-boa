@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { getAllPlayers, getChallenges, updatePlayer, updateChallenge, confirmSlotPayment, getCourts, reserveSlot } from '../lib/supabase'
+import { getAllPlayers, getChallenges, updatePlayer, updateChallenge, confirmSlotPayment, getCourts, reserveSlot, getWeeklyConfig } from '../lib/supabase'
 import { notifyRankingUpdated, notifyReminder, notifyChallengeExpired, notifyPaymentConfirmed } from '../lib/notify'
 
 const HOURS = ['08:00','09:30','11:00','12:30','15:00','16:30','18:00','19:30','21:00']
@@ -15,7 +15,7 @@ export default function Admin() {
   const [injureModal, setInjureModal] = useState(null)
   const [injNote, setInjNote] = useState('')
   const [activateModal, setActivateModal] = useState(null)
-  const [slotModal, setSlotModal] = useState(null) // asignar cancha a desafío
+  const [slotModal, setSlotModal] = useState(null)
 
   useEffect(() => { load() }, [])
 
@@ -70,25 +70,26 @@ export default function Admin() {
   }
 
   async function assignSlot() {
-    if (!slotModal?.court || !slotModal?.day || !slotModal?.hour) {
-      ntf('Completa cancha, día y hora.', 'warn'); return
+    if (!slotModal?.court || !slotModal?.hour) {
+      ntf('Selecciona cancha y hora.', 'warn'); return
     }
     const c = slotModal.challenge
+    const today = new Date().toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' })
     await updateChallenge(c.id, {
       slot_court: slotModal.court,
-      slot_day: slotModal.day,
+      slot_day: today,
       slot_hour: slotModal.hour,
       pago_confirmado: slotModal.paid,
     })
     await reserveSlot({
       court_id: slotModal.court,
-      dia: slotModal.day,
+      dia: today,
       hora: slotModal.hour,
       reserved_by: c.challenger_id,
       challenge_id: c.id,
     })
     if (slotModal.paid) {
-      await confirmSlotPayment(slotModal.court, slotModal.day, slotModal.hour)
+      await confirmSlotPayment(slotModal.court, today, slotModal.hour)
     }
     setSlotModal(null)
     ntf(`Cancha asignada${slotModal.paid ? ' y pago confirmado' : ' — pago pendiente'}.`)
@@ -131,9 +132,6 @@ export default function Admin() {
   const pendingActivation = players.filter(p => !p.activo)
   const activePlayers = players.filter(p => p.activo).sort((a, b) => (a.posicion || 999) - (b.posicion || 999))
   const acceptedChallenges = challenges.filter(c => c.status === 'accepted')
-  const pendingSlot = acceptedChallenges.filter(c => !c.slot_day)
-  const pendingPayment = acceptedChallenges.filter(c => c.slot_day && !c.pago_confirmado)
-  const confirmedMatches = acceptedChallenges.filter(c => c.slot_day && c.pago_confirmado)
 
   if (loading) return <p style={{ color: '#888', fontSize: 13, padding: 24 }}>Cargando...</p>
 
@@ -176,15 +174,15 @@ export default function Admin() {
                     </div>
                     <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>
                       {c.slot_day
-                        ? `${court?.nombre || c.slot_court} · ${c.slot_day} · ${c.slot_hour} · ${c.pago_confirmado ? '✓ Pago confirmado' : 'Pago pendiente'}`
+                        ? `${court?.nombre || c.slot_court} · ${c.slot_hour} · ${c.pago_confirmado ? '✓ Pago confirmado' : 'Pago pendiente'}`
                         : `Sin cancha · vence ${c.deadline}`
                       }
                     </div>
                   </div>
-                  <div style={{ display: 'flex', gap: 6 }}>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                     {!c.slot_day && (
                       <button className="btn btn-accept" style={{ fontSize: 12 }}
-                        onClick={() => setSlotModal({ challenge: c, court: courts[0]?.id, day: '', hour: HOURS[6], paid: false })}>
+                        onClick={() => setSlotModal({ challenge: c, court: courts[0]?.id, hour: HOURS[6], paid: false })}>
                         Asignar cancha
                       </button>
                     )}
@@ -271,10 +269,10 @@ export default function Admin() {
         </div>
       </Section>
 
-      {/* Modal asignar cancha */}
+      {/* Modal asignar cancha — sin campo día */}
       {slotModal && (
-        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setSlotModal(null) }}>
-          <div className="modal">
+        <div className="modal-overlay">
+          <div className="modal" onClick={e => e.stopPropagation()}>
             <h3>Asignar cancha</h3>
             <p style={{ fontSize: 13, color: '#555', marginBottom: 12 }}>
               {slotModal.challenge.challenger?.nombre} vs {slotModal.challenge.challenged?.nombre}
@@ -284,12 +282,6 @@ export default function Admin() {
               <select value={slotModal.court} onChange={e => setSlotModal(s => ({ ...s, court: e.target.value }))}>
                 {courts.map(c => <option key={c.id} value={c.id}>{c.nombre} ({c.surface})</option>)}
               </select>
-            </div>
-            <div className="form-row">
-              <label>Día</label>
-              <input type="text" value={slotModal.day}
-                onChange={e => setSlotModal(s => ({ ...s, day: e.target.value }))}
-                placeholder="ej: Lun 09 Jun" />
             </div>
             <div className="form-row">
               <label>Hora</label>
@@ -313,10 +305,9 @@ export default function Admin() {
         </div>
       )}
 
-      {/* Modal lesión */}
       {injureModal && (
-        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setInjureModal(null) }}>
-          <div className="modal">
+        <div className="modal-overlay">
+          <div className="modal" onClick={e => e.stopPropagation()}>
             <h3>Marcar lesionado</h3>
             <p style={{ fontSize: 13, color: '#555', marginBottom: 12 }}>
               {injureModal.nombre} {injureModal.apellido}
@@ -334,10 +325,9 @@ export default function Admin() {
         </div>
       )}
 
-      {/* Modal activar */}
       {activateModal && (
-        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setActivateModal(null) }}>
-          <div className="modal">
+        <div className="modal-overlay">
+          <div className="modal" onClick={e => e.stopPropagation()}>
             <h3>Activar jugador</h3>
             <p style={{ fontSize: 13, color: '#555', marginBottom: 12 }}>
               {activateModal.nombre} {activateModal.apellido}
