@@ -496,7 +496,7 @@ export default function Admin() {
                     <span style={{ flex: 1, fontSize: 13 }}>
                       <span style={{ fontWeight: c.ganador === 'challenger' ? 500 : 400 }}>{ch?.nombre}</span>
                       <span style={{ color: '#888', fontSize: 12, margin: '0 5px' }}>
-                        {c.score_a}–{c.score_b}{hasTB ? ` (TB ${c.tiebreak_a}–${c.tiebreak_b})` : ''}{c.is_wo ? ' (WO)' : ''}
+                        {c.score_a}–{c.score_b}{hasTB ? ` (${c.tiebreak_a}–${c.tiebreak_b})` : ''}{c.is_wo ? ' (WO)' : ''}
                       </span>
                       <span style={{ fontWeight: c.ganador === 'challenged' ? 500 : 400 }}>{cd?.nombre}</span>
                     </span>

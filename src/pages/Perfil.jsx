@@ -169,7 +169,7 @@ export default function Perfil() {
                 <span className={`badge ${won ? 'badge-green' : 'badge-red'}`} style={{ flexShrink: 0, width: 20, textAlign: 'center' }}>{won ? 'W' : 'L'}</span>
                 <span style={{ flex: 1, fontSize: 13 }}>vs {rival?.nombre} {rival?.apellido}</span>
                 <span style={{ fontSize: 13, fontWeight: 500 }}>
-                  {myScore}–{rivalScore}{hasTB ? ` (TB ${isChallenger ? c.tiebreak_a : c.tiebreak_b}–${isChallenger ? c.tiebreak_b : c.tiebreak_a})` : ''}{c.is_wo ? ' (WO)' : ''}
+                  {myScore}–{rivalScore}{hasTB ? ` (${isChallenger ? c.tiebreak_a : c.tiebreak_b}–${isChallenger ? c.tiebreak_b : c.tiebreak_a})` : ''}{c.is_wo ? ' (WO)' : ''}
                 </span>
                 <span style={{ fontSize: 11, color: '#888', marginLeft: 6 }}>{fmtDate(c.created_at)}</span>
               </div>

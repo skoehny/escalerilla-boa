@@ -75,7 +75,7 @@ export default function Resultados() {
       // Refrescar sesión del jugador actual
       const { data: freshPlayer } = await supabase.from('players').select('*').eq('id', player.id).single()
       if (freshPlayer) updateSession(freshPlayer)
-      ntf(`Resultado guardado: ${sa}–${sb}${isTB ? ` (TB ${tbA}–${tbB})` : ''}. El ranking se actualiza el jueves.`)
+      ntf(`Resultado guardado: ${sa}–${sb}${isTB ? ` (${tbA}–${tbB})` : ''}. El ranking se actualiza el jueves.`)
       load()
     } catch (err) { ntf(err.message, 'err') }
   }
@@ -161,7 +161,7 @@ export default function Resultados() {
                 <span style={{ flex: 1, fontSize: 13 }}>
                   <span style={{ fontWeight: c.ganador === 'challenger' ? 500 : 400 }}>{c.challenger?.nombre}</span>
                   <span style={{ color: '#888', fontSize: 12, margin: '0 5px' }}>
-                    {c.score_a}–{c.score_b}{hasTB ? ` (TB ${c.tiebreak_a}–${c.tiebreak_b})` : ''}{c.is_wo ? ' (WO)' : ''}
+                    {c.score_a}–{c.score_b}{hasTB ? ` (${c.tiebreak_a}–${c.tiebreak_b})` : ''}{c.is_wo ? ' (WO)' : ''}
                   </span>
                   <span style={{ fontWeight: c.ganador === 'challenged' ? 500 : 400 }}>{c.challenged?.nombre}</span>
                 </span>
