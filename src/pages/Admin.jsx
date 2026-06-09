@@ -178,7 +178,7 @@ export default function Admin() {
       }
     }
     
-    await updatePlayer(p.id, { nombre: p.nombre, apellido: p.apellido, email: p.email, telefono: p.telefono, posicion: newPos, es_admin: p.es_admin })
+    await updatePlayer(p.id, { nombre: p.nombre, apellido: p.apellido, email: p.email, telefono: p.telefono, posicion: newPos, es_admin: p.es_admin, wildcard_usada: p.wildcard_usada || false })
     setEditPlayerModal(null)
     ntf('Perfil actualizado. Ranking reordenado.')
     load()
