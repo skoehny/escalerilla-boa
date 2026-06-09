@@ -165,7 +165,7 @@ export default function Resultados() {
           ? <p style={{ fontSize: 13, color: '#888', textAlign: 'center', padding: '12px 0' }}>Sin partidos jugados aún</p>
           : completed.map(c => {
             const w = c.ganador === 'challenger' ? c.challenger : c.challenged
-            const hasTB = c.tiebreak_a !== null && c.tiebreak_b !== null
+            const hasTB = c.tiebreak_a != null && c.tiebreak_b != null
             return (
               <div key={c.id} className="row-item">
                 <span style={{ flex: 1, fontSize: 13 }}>
