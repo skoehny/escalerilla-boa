@@ -2,7 +2,21 @@ import { useState, useEffect } from 'react'
 import { getAllPlayers, getChallenges, updatePlayer, updateChallenge, confirmSlotPayment, getCourts, reserveSlot, supabase } from '../lib/supabase'
 import { notifyRankingUpdated, notifyReminder, notifyChallengeExpired, notifyPaymentConfirmed } from '../lib/notify'
 
-const HOURS = ['08:00','09:30','11:00','12:30','15:00','16:30','18:00','19:30','21:00']
+const HOURS_30 = []
+for (let h = 7; h < 22; h++) {
+  HOURS_30.push(`${String(h).padStart(2,'0')}:00`)
+  HOURS_30.push(`${String(h).padStart(2,'0')}:30`)
+}
+const HOURS = HOURS_30
+
+function fmtDate(d) {
+  if (!d) return ''
+  if (d.includes('-') && d.length === 10) {
+    const dt = new Date(d + 'T12:00:00')
+    return dt.toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' })
+  }
+  return d
+}
 function ini(n, a) { return ((n?.[0] || '') + (a?.[0] || '')).toUpperCase() }
 
 export default function Admin() {
@@ -273,7 +287,7 @@ export default function Admin() {
                   <div style={{ flex: 1, minWidth: 160 }}>
                     <div style={{ fontSize: 13, fontWeight: 500 }}>{ch?.nombre} vs {cd?.nombre}</div>
                     <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>
-                      {c.slot_day ? `${court?.nombre || c.slot_court} · ${c.slot_day} · ${c.slot_hour} · ${c.pago_confirmado ? '✓ Pago ok' : 'Pago pendiente'}` : `Sin cancha · vence ${c.deadline}`}
+                      {c.slot_day ? `${court?.nombre || c.slot_court} · ${c.slot_day} · ${c.slot_hour} · ${c.pago_confirmado ? '✓ Pago ok' : 'Pago pendiente'}` : `Sin cancha · vence ${fmtDate(c.deadline)}`}
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -414,7 +428,7 @@ export default function Admin() {
                 <option value="challenged">{editResultModal.challenged?.nombre} {editResultModal.challenged?.apellido}</option>
               </select>
             </div>
-            {editResultModal.score_a === '8' && editResultModal.score_b === '8' && (
+            {String(editResultModal.score_a) === '8' && String(editResultModal.score_b) === '8' && (
               <div style={{ background: '#FAEEDA', borderRadius: 8, padding: '8px 10px', marginBottom: 10 }}>
                 <div style={{ fontSize: 12, fontWeight: 500, color: '#633806', marginBottom: 8 }}>Tiebreak 8-8</div>
                 <div style={{ display: 'flex', gap: 8 }}>

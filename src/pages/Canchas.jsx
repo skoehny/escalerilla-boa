@@ -3,7 +3,11 @@ import { getCourts, getSlots, reserveSlot, getChallenges, updateChallenge } from
 import { notifySlotReserved } from '../lib/notify'
 import { useSession } from '../components/SessionContext'
 
-const HOURS = ['08:00','09:30','11:00','12:30','15:00','16:30','18:00','19:30','21:00']
+const HOURS = []
+for (let h = 7; h < 22; h++) {
+  HOURS.push(`${String(h).padStart(2,'0')}:00`)
+  HOURS.push(`${String(h).padStart(2,'0')}:30`)
+}
 
 function getDays() {
   const days = []

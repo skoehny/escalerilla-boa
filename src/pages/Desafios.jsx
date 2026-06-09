@@ -1,5 +1,14 @@
 import { useState, useEffect } from 'react'
 import { getChallenges, updateChallenge } from '../lib/supabase'
+
+function fmtDate(d) {
+  if (!d) return ''
+  if (d.includes('-') && d.length === 10) {
+    const dt = new Date(d + 'T12:00:00')
+    return dt.toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' })
+  }
+  return d
+}
 import { notifyChallengeAccepted, notifyChallengeRejected, notifyChallengeExpired } from '../lib/notify'
 import { useSession } from '../components/SessionContext'
 
