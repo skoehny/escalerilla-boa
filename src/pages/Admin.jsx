@@ -130,6 +130,11 @@ export default function Admin() {
   function getNextWednesday() {
     const d = new Date()
     while (d.getDay() !== 3) d.setDate(d.getDate() + 1)
+    return d.toISOString().split('T')[0]
+  }
+
+  function formatDateLabel(isoDate) {
+    const d = new Date(isoDate + 'T12:00:00')
     return d.toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' })
   }
 
@@ -481,7 +486,7 @@ export default function Admin() {
             </div>
             <div style={{ background: '#f5f4f0', borderRadius: 8, padding: '8px 10px', fontSize: 12, color: '#888', marginBottom: 10 }}>
               <i className="ti ti-calendar" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />
-              Fecha límite: <strong>{getNextWednesday()}</strong> (próximo miércoles)
+              Fecha límite: <strong>{formatDateLabel(getNextWednesday())}</strong> (próximo miércoles)
             </div>
             <div className="form-row"><label>Cancha (opcional)</label>
               <select value={newChallengeModal.court} onChange={e => setNewChallengeModal(m => ({ ...m, court: e.target.value }))}>
