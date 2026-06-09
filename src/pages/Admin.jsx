@@ -429,6 +429,17 @@ export default function Admin() {
             <button className="btn" onClick={() => setHistorialModal({ challenger_id: '', challenged_id: '', score_a: '', score_b: '', court: '', date: '' })}>
               <i className="ti ti-history" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Agregar historial
             </button>
+          <button className="btn" onClick={async () => {
+              const msg = '🎾 Escalerilla BOA — Club BOA. Ingresa en: https://escalerilla-boa.vercel.app. Si ya eres jugador: entra con tu número de WhatsApp y completa tu perfil. Si quieres unirte: regístrate con tus datos y el admin te activará.'
+              if (navigator.share) {
+                await navigator.share({ text: msg })
+              } else {
+                await navigator.clipboard.writeText(msg)
+                ntf('Mensaje copiado al portapapeles.')
+              }
+            }}>
+              <i className="ti ti-user-plus" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Invitar jugadores
+            </button>
           </div>
 
           {/* Lesiones */}
