@@ -718,7 +718,18 @@ export default function Admin() {
               </select>
             </div>
             <div className="form-row"><label>Fecha</label>
-              <input type="date" value={editResultModal.slot_day && editResultModal.slot_day.includes('-') && editResultModal.slot_day.length === 10 ? editResultModal.slot_day : ''} 
+              <input type="date" value={(() => {
+                const d = editResultModal.slot_day
+                if (!d) return ''
+                // Convert DD-MM-YYYY to YYYY-MM-DD
+                if (d.match(/^\d{2}-\d{2}-\d{4}$/)) {
+                  const [day, month, year] = d.split('-')
+                  return `${year}-${month}-${day}`
+                }
+                // Already YYYY-MM-DD
+                if (d.match(/^\d{4}-\d{2}-\d{2}$/)) return d
+                return ''
+              })()} 
                 onChange={e => setEditResultModal(m => ({ ...m, slot_day: e.target.value }))} />
             </div>
             <div className="modal-actions">
