@@ -2,6 +2,16 @@ import { useState, useEffect } from 'react'
 import { getAllPlayers, getChallenges, updatePlayer, updateChallenge, confirmSlotPayment, getCourts, reserveSlot, supabase } from '../lib/supabase'
 import { notifyRankingUpdated, notifyReminder, notifyChallengeExpired, notifyPaymentConfirmed, notifyResult } from '../lib/notify'
 
+
+function courtDot(courtId) {
+  const isHard = courtId === 'c3'
+  return <span style={{
+    display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
+    background: isHard ? '#60B8E0' : '#E8712A',
+    marginRight: 4, flexShrink: 0, verticalAlign: 'middle'
+  }} title={isHard ? 'Cancha dura' : 'Arcilla'} />
+}
+
 const HOURS = []
 for (let h = 7; h < 22; h++) {
   HOURS.push(`${String(h).padStart(2,'0')}:00`)
@@ -122,6 +132,12 @@ export default function Admin() {
     await updatePlayer(p.id, { activo: true, posicion: pos })
     setActivateModal(null)
     ntf(`${p.nombre} activado en #${pos}.`)
+    load()
+  }
+
+  async function inactivatePlayer(p) {
+    await updatePlayer(p.id, { activo: false })
+    ntf(`${p.nombre} marcado como inactivo. No aparece en el ranking.`, 'warn')
     load()
   }
 
@@ -515,17 +531,30 @@ export default function Admin() {
 
       {/* JUGADORES */}
       {activeTab === 'jugadores' && (
-        <div className="card">
-          {players.map(p => (
-            <div key={p.id} className="row-item">
-              <span style={{ width: 24, textAlign: 'center', fontSize: 12, color: '#888' }}>{p.posicion || '—'}</span>
-              <div className="avatar" style={{ width: 26, height: 26, fontSize: 10 }}>{ini(p.nombre, p.apellido)}</div>
-              <span style={{ flex: 1, fontSize: 13 }}>{p.nombre} {p.apellido}</span>
-              <span className={`badge ${p.activo ? 'badge-green' : 'badge-amber'}`} style={{ fontSize: 10 }}>{p.activo ? 'activo' : 'pendiente'}</span>
-              {p.es_admin && <span className="badge badge-blue" style={{ fontSize: 10 }}>admin</span>}
-              <button className="btn" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => setEditPlayerModal({ ...p })}>Editar</button>
-            </div>
-          ))}
+        <div>
+          <div style={{ fontSize: 12, color: '#888', marginBottom: 8 }}>
+            Activos: {players.filter(p => p.activo).length} · Inactivos: {players.filter(p => !p.activo).length}
+          </div>
+          <div className="card">
+            {[...players].sort((a, b) => {
+              if (a.activo && !b.activo) return -1
+              if (!a.activo && b.activo) return 1
+              return (a.posicion || 999) - (b.posicion || 999)
+            }).map(p => (
+              <div key={p.id} className="row-item">
+                <span style={{ width: 24, textAlign: 'center', fontSize: 12, color: '#888' }}>{p.posicion || '—'}</span>
+                <div className="avatar" style={{ width: 26, height: 26, fontSize: 10, opacity: p.activo ? 1 : 0.5 }}>{ini(p.nombre, p.apellido)}</div>
+                <span style={{ flex: 1, fontSize: 13, color: p.activo ? 'inherit' : '#aaa' }}>{p.nombre} {p.apellido}</span>
+                <span className={`badge ${p.activo ? 'badge-green' : 'badge-gray'}`} style={{ fontSize: 10 }}>{p.activo ? 'activo' : 'inactivo'}</span>
+                {p.es_admin && <span className="badge badge-blue" style={{ fontSize: 10 }}>admin</span>}
+                <button className="btn" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => setEditPlayerModal({ ...p })}>Editar</button>
+                {p.activo
+                  ? <button className="btn btn-warn" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => inactivatePlayer(p)}>Inactivar</button>
+                  : <button className="btn btn-accept" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => setActivateModal(p)}>Activar</button>
+                }
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
