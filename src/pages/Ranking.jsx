@@ -19,6 +19,7 @@ export default function Ranking() {
   const [loading, setLoading] = useState(true)
   const [notif, setNotif] = useState(null)
   const [hasActive, setHasActive] = useState(false)
+  const [challenges, setChallenges] = useState([])
   const [myStats, setMyStats] = useState({ wins: 0, losses: 0 })
 
   useEffect(() => { load() }, [])
@@ -31,6 +32,7 @@ export default function Ranking() {
         (c.challenger_id === player?.id || c.challenged_id === player?.id) &&
         (c.status === 'pending' || c.status === 'accepted')
       )
+      setChallenges(ch)
       setHasActive(active)
       // Calcular wins/losses desde historial
       const completed = ch.filter(c => c.status === 'completed')
@@ -96,7 +98,13 @@ export default function Ranking() {
         {players.map(p => {
           const isMe = p.id === player?.id
           const numColor = p.posicion === 1 ? '#BA7517' : p.posicion === 2 ? '#888780' : p.posicion === 3 ? '#D85A30' : '#888'
-          const canChallenge = !isMe && p.posicion < player?.posicion && p.posicion >= player?.posicion - 3 && !p.lesionado && !player?.lesionado && !hasActive
+          // Check if target player has active challenge or played this week
+          const targetHasActive = challenges.some(c =>
+            (c.challenger_id === p.id || c.challenged_id === p.id) &&
+            (c.status === 'pending' || c.status === 'accepted' ||
+             (c.status === 'completed' && c.ranking_applied === false))
+          )
+          const canChallenge = !isMe && p.posicion < player?.posicion && p.posicion >= player?.posicion - 3 && !p.lesionado && !player?.lesionado && !hasActive && !targetHasActive
 
           return (
             <div key={p.id} className="row-item" style={isMe ? { background: '#f5f4f0', borderRadius: 8, padding: '8px', margin: '0 -6px' } : {}}>
