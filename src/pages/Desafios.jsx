@@ -1,135 +1,204 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { getPlayers, createChallenge, getChallenges } from '../lib/supabase'
-import { notifyChallengeSent } from '../lib/notify'
+import { getChallenges, updateChallenge, supabase } from '../lib/supabase'
+
+function fmtDate(d) {
+  if (!d) return ''
+  if (d.includes('-') && d.length === 10) {
+    const dt = new Date(d + 'T12:00:00')
+    return dt.toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' })
+  }
+  return d
+}
+import { notifyChallengeAccepted, notifyChallengeRejected, notifyChallengeExpired } from '../lib/notify'
 import { useSession } from '../components/SessionContext'
 
-function ini(n, a) { return ((n?.[0] || '') + (a?.[0] || '')).toUpperCase() }
-function trend(pos, prev) {
-  if (!prev || pos === prev) return <span style={{ color: '#888', fontSize: 11 }}>—</span>
-  const d = prev - pos
-  if (d > 0) return <span style={{ color: '#3B6D11', fontSize: 11 }}>↑{d}</span>
-  return <span style={{ color: '#A32D2D', fontSize: 11 }}>↓{Math.abs(d)}</span>
+const WA_GROUP = import.meta.env.VITE_WA_GROUP || 'https://chat.whatsapp.com/XXXXXXXXXXXXXXX'
+const STEPS = ['Pendiente', 'Acordar día', 'Reservar cancha', 'Pago confirmado', 'Jugado']
+
+function stepOf(c) {
+  if (c.status === 'pending') return 0
+  if (c.status === 'accepted' && !c.slot_day) return 1
+  if (c.status === 'accepted' && c.slot_day && !c.pago_confirmado) return 2
+  if (c.status === 'accepted' && c.slot_day && c.pago_confirmado) return 3
+  if (c.status === 'completed') return 4
+  return 0
 }
 
-export default function Ranking() {
+export default function Desafios() {
   const { player } = useSession()
-  const navigate = useNavigate()
-  const [players, setPlayers] = useState([])
+  const [challenges, setChallenges] = useState([])
   const [loading, setLoading] = useState(true)
   const [notif, setNotif] = useState(null)
-  const [hasActive, setHasActive] = useState(false)
-  const [challenges, setChallenges] = useState([])
-  const [myStats, setMyStats] = useState({ wins: 0, losses: 0 })
 
   useEffect(() => { load() }, [])
 
   async function load() {
     try {
-      const [pl, ch] = await Promise.all([getPlayers(), getChallenges()])
-      setPlayers(pl)
-      const active = ch.some(c =>
-        (c.challenger_id === player?.id || c.challenged_id === player?.id) &&
-        (c.status === 'pending' || c.status === 'accepted')
-      )
-      setChallenges(ch)
-      setHasActive(active)
-      // Calcular wins/losses desde historial
-      const completed = ch.filter(c => c.status === 'completed')
-      const wins = completed.filter(c =>
-        (c.ganador === 'challenger' && c.challenger_id === player?.id) ||
-        (c.ganador === 'challenged' && c.challenged_id === player?.id)
-      ).length
-      const losses = completed.filter(c =>
-        (c.ganador === 'challenger' && c.challenged_id === player?.id) ||
-        (c.ganador === 'challenged' && c.challenger_id === player?.id)
-      ).length
-      setMyStats({ wins, losses })
+      const data = await getChallenges()
+      setChallenges(data)
     } finally { setLoading(false) }
   }
 
-  function notify(msg, type = 'ok') {
+  function ntf(msg, type = 'ok') {
     setNotif({ msg, type })
     setTimeout(() => setNotif(null), 4000)
   }
 
-  async function handleChallenge(target) {
-    try {
-      const d = new Date()
-      while (d.getDay() !== 3) d.setDate(d.getDate() + 1)
-      const deadline = d.toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' })
-      await createChallenge({ challenger_id: player.id, challenged_id: target.id, deadline })
-      await notifyChallengeSent(player, target)
-      notify(`Desafío enviado a ${target.nombre} ${target.apellido}.`)
-      load()
-    } catch (err) { notify(err.message, 'err') }
+  async function accept(c) {
+    await updateChallenge(c.id, { status: 'accepted' })
+    await notifyChallengeAccepted(c.challenger, c.challenged, c.deadline || 'miércoles')
+    ntf('Desafío aceptado. Coordina el día por WhatsApp y luego reserva una cancha.')
+    load()
   }
 
-  if (loading) return <p style={{ color: '#888', fontSize: 13, textAlign: 'center', padding: 24 }}>Cargando ranking...</p>
+  async function reject(c) {
+    await updateChallenge(c.id, { status: 'expired' })
+    await notifyChallengeRejected(c.challenger, c.challenged)
+    ntf('Desafío rechazado.', 'warn')
+    load()
+  }
+
+  async function cancelChallenge(c) {
+    await updateChallenge(c.id, { status: 'expired' })
+    ntf('Desafío cancelado. Ambos jugadores quedan libres.', 'warn')
+    load()
+  }
+
+  const received = challenges.filter(c => c.challenged_id === player?.id && c.status === 'pending')
+  const myActive = challenges.find(c =>
+    (c.challenger_id === player?.id || c.challenged_id === player?.id) &&
+    (c.status === 'pending' || c.status === 'accepted')
+  )
+  const allActive = challenges.filter(c => c.status === 'pending' || c.status === 'accepted')
+
+  if (loading) return <p style={{ color: '#888', fontSize: 13, padding: 24 }}>Cargando...</p>
 
   return (
     <div>
-      {notif && <div className={`notif notif-${notif.type}`}><i className={`ti ti-${notif.type === 'ok' ? 'check' : 'alert-triangle'}`} aria-hidden="true" /> {notif.msg}</div>}
-
-      <div className="week-banner">
-        <span><i className="ti ti-calendar" style={{ fontSize: 13, verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Semana activa · cierre mié · actualización jueves</span>
-        <span className="badge badge-teal">1 partido disponible</span>
-      </div>
-
-      <div className="stats-grid">
-        <div className="stat-card"><div className="stat-val">#{player?.posicion || '—'}</div><div className="stat-label">Mi posición</div></div>
-        <div className="stat-card"><div className="stat-val">{player?.victorias || 0}</div><div className="stat-label">Victorias</div></div>
-        <div className="stat-card"><div className="stat-val">{player?.derrotas || 0}</div><div className="stat-label">Derrotas</div></div>
-        <div className="stat-card"><div className="stat-val">{players.length}</div><div className="stat-label">Activos</div></div>
-      </div>
-
-      {player?.lesionado && (
-        <div className="notif notif-err" style={{ marginBottom: 10 }}>
-          <i className="ti ti-first-aid-kit" aria-hidden="true" /> Estás marcado como lesionado{player.lesion_nota ? ` — ${player.lesion_nota}` : ''}. No puedes recibir desafíos.
+      {notif && (
+        <div className={`notif notif-${notif.type}`}>
+          <i className={`ti ti-${notif.type === 'ok' ? 'check' : 'alert-triangle'}`} aria-hidden="true" />
+          {notif.msg}
         </div>
       )}
 
-      <div className="card">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-          <span className="section-title" style={{ margin: 0 }}>Ranking</span>
-          <span style={{ fontSize: 11, color: '#888' }}>Actualizado este jueves</span>
-        </div>
-
-        {players.map(p => {
-          const isMe = p.id === player?.id
-          const numColor = p.posicion === 1 ? '#BA7517' : p.posicion === 2 ? '#888780' : p.posicion === 3 ? '#D85A30' : '#888'
-          // Check if target player has active challenge or played this week
-          const targetHasActive = challenges.some(c =>
-            (c.challenger_id === p.id || c.challenged_id === p.id) &&
-            (c.status === 'pending' || c.status === 'accepted' ||
-             (c.status === 'completed' && c.ranking_applied === false))
-          )
-          const canChallenge = !isMe && p.posicion < player?.posicion && p.posicion >= player?.posicion - 3 && !p.lesionado && !player?.lesionado && !hasActive && !targetHasActive
-
-          return (
-            <div key={p.id} className="row-item" style={isMe ? { background: '#f5f4f0', borderRadius: 8, padding: '8px', margin: '0 -6px' } : {}}>
-              <span style={{ width: 24, textAlign: 'center', fontSize: 13, fontWeight: 500, color: numColor, flexShrink: 0 }}>{p.posicion}</span>
-              <div className="avatar" style={{ width: 26, height: 26, fontSize: 10, background: p.lesionado ? '#FCEBEB' : '#E1F5EE', color: p.lesionado ? '#A32D2D' : '#0F6E56', cursor: 'pointer' }}
-                onClick={() => navigate(`/jugador/${p.id}`)}>
-                {ini(p.nombre, p.apellido)}
+      {received.length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          <div className="section-title">
+            Desafíos recibidos <span className="badge badge-amber">{received.length}</span>
+          </div>
+          {received.map(c => (
+            <div key={c.id} className="card" style={{ borderColor: '#5DCAA5' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div className="avatar" style={{ width: 32, height: 32, fontSize: 12 }}>
+                  {(c.challenger?.nombre?.[0] || '') + (c.challenger?.apellido?.[0] || '')}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 500 }}>
+                    {c.challenger?.nombre} {c.challenger?.apellido} te desafió
+                  </div>
+                  <div style={{ fontSize: 12, color: '#888' }}>
+                    #{c.challenger?.posicion} vs #{c.challenged?.posicion} · 48 h para responder
+                  </div>
+                </div>
+                <button className="btn btn-reject" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => reject(c)}>Rechazar</button>
+                <button className="btn btn-accept" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => accept(c)}>Aceptar</button>
               </div>
-              <span style={{ flex: 1, fontSize: 13, cursor: 'pointer' }} onClick={() => navigate(`/jugador/${p.id}`)}>
-                {p.nombre} {p.apellido}
-                {isMe && <span style={{ fontSize: 11, color: '#1D9E75', marginLeft: 4 }}>(tú)</span>}
-                {p.lesionado && <span className="badge badge-red" style={{ fontSize: 10, marginLeft: 4 }}>lesionado</span>}
-              </span>
-              <span style={{ fontSize: 12, color: '#888' }}>{p.victorias || 0}V {p.derrotas || 0}D</span>
-              <span style={{ width: 24, textAlign: 'center' }}>{trend(p.posicion, p.posicion_anterior)}</span>
-              {canChallenge && (
-                <button className="btn btn-accept" style={{ padding: '3px 10px', fontSize: 12 }} onClick={() => handleChallenge(p)}>
-                  Desafiar
-                </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {myActive && myActive.status === 'accepted' && (
+        <div style={{ marginBottom: 14 }}>
+          <div className="section-title">Mi desafío activo</div>
+          <div className="card" style={{ borderColor: '#5DCAA5' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+              <span style={{ fontSize: 13, fontWeight: 500 }}>{myActive.challenger?.nombre} {myActive.challenger?.apellido}</span>
+              <span style={{ color: '#888', fontSize: 12 }}>vs</span>
+              <span style={{ fontSize: 13, fontWeight: 500 }}>{myActive.challenged?.nombre} {myActive.challenged?.apellido}</span>
+              {myActive.deadline && (
+                <span style={{ marginLeft: 'auto', fontSize: 12, color: '#A32D2D' }}>vence {myActive.deadline}</span>
               )}
             </div>
-          )
-        })}
+
+            <div className="flow-steps">
+              {STEPS.map((s, i) => {
+                const step = stepOf(myActive)
+                return (
+                  <div key={s} className={`flow-step ${i < step ? 'done' : i === step ? 'now' : ''}`}>
+                    {i < step && <i className="ti ti-check" aria-hidden="true" style={{ marginRight: 2 }} />}
+                    {s}
+                  </div>
+                )
+              })}
+            </div>
+
+            {stepOf(myActive) === 1 && (
+              <div style={{ background: '#f5f4f0', borderRadius: 8, padding: '10px 12px' }}>
+                <div style={{ fontSize: 13, color: '#555', marginBottom: 8 }}>
+                  <i className="ti ti-messages" style={{ verticalAlign: -2, marginRight: 5 }} aria-hidden="true" />
+                  Coordina el día con tu rival. Una vez acordado, cualquiera de los dos reserva la cancha.
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <a href={WA_GROUP} target="_blank" rel="noreferrer"
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8, border: '0.5px solid #1D9E75', background: '#E1F5EE', color: '#085041', fontSize: 12, fontWeight: 500, textDecoration: 'none' }}>
+                    <i className="ti ti-brand-whatsapp" style={{ fontSize: 15 }} aria-hidden="true" />
+                    Abrir grupo BOA
+                  </a>
+                  <a href="/canchas" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8, border: '0.5px solid #ccc', color: '#333', fontSize: 12, textDecoration: 'none' }}>
+                    Ver canchas disponibles →
+                  </a>
+                  <button className="btn btn-reject" style={{ fontSize: 12, padding: '6px 12px' }}
+                    onClick={() => cancelChallenge(myActive)}>
+                    Cancelar desafío
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {stepOf(myActive) >= 2 && myActive.slot_court && (
+              <div style={{ background: '#f5f4f0', borderRadius: 8, padding: '9px 12px', marginTop: 6 }}>
+                <div style={{ fontSize: 13, fontWeight: 500 }}>
+                  {myActive.slot_court} · {myActive.slot_day} · {myActive.slot_hour}
+                </div>
+                <div style={{ fontSize: 12, color: myActive.pago_confirmado ? '#3B6D11' : '#888', marginTop: 2 }}>
+                  {myActive.pago_confirmado
+                    ? <><i className="ti ti-check" aria-hidden="true" style={{ marginRight: 3 }} />Pago confirmado — listo para jugar</>
+                    : 'Pago pendiente — el admin validará en breve'}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="section-title">Todos los desafíos activos</div>
+      <div className="card">
+        {allActive.length === 0
+          ? <p style={{ fontSize: 13, color: '#888', textAlign: 'center', padding: '14px 0' }}>Sin desafíos activos esta semana</p>
+          : allActive.map(c => {
+            const step = stepOf(c)
+            const labels = ['Pendiente', 'Acordando día', 'Cancha reservada', 'Listo para jugar']
+            const bCls = ['badge-amber', 'badge-gray', 'badge-teal', 'badge-green']
+            return (
+              <div key={c.id} className="row-item">
+                <span style={{ flex: 1, fontSize: 13 }}>
+                  {c.challenger?.nombre} {c.challenger?.apellido}
+                  <span style={{ color: '#888', fontSize: 11, margin: '0 4px' }}>vs</span>
+                  {c.challenged?.nombre} {c.challenged?.apellido}
+                </span>
+                <span className={`badge ${bCls[step] || 'badge-gray'}`}>{labels[step] || ''}</span>
+                {c.deadline && <span style={{ fontSize: 11, color: '#888', marginLeft: 8 }}>{c.deadline}</span>}
+              </div>
+            )
+          })
+        }
       </div>
-      {hasActive && <p style={{ fontSize: 12, color: '#888', textAlign: 'center' }}>Ya tienes un desafío activo esta semana</p>}
+
+      <p style={{ fontSize: 12, color: '#888', marginTop: 4 }}>
+        <i className="ti ti-info-circle" style={{ verticalAlign: -2 }} aria-hidden="true" /> 48 h para aceptar · máx. 2 rechazos/mes · 1 partido/semana · lesionados no pueden ser desafiados
+      </p>
     </div>
   )
 }
