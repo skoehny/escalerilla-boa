@@ -233,6 +233,11 @@ export default function Admin() {
     const m = newChallengeModal
     if (!m.challenger_id || !m.challenged_id) { ntf('Selecciona ambos jugadores', 'err'); return }
     if (m.challenger_id === m.challenged_id) { ntf('No pueden ser el mismo jugador', 'err'); return }
+    const challengerP = players.find(p => p.id === m.challenger_id)
+    const challengedP = players.find(p => p.id === m.challenged_id)
+    if (challengerP && challengedP && challengerP.posicion && challengedP.posicion && challengerP.posicion <= challengedP.posicion) {
+      ntf('El desafiante debe estar en posición inferior al desafiado.', 'err'); return
+    }
     try {
       const deadline = getNextWednesday()
       let slotDay = null
@@ -310,7 +315,7 @@ export default function Admin() {
       updates.tiebreak_a = null; updates.tiebreak_b = null
     }
     if (m.slot_court) updates.slot_court = m.slot_court
-    if (m.slot_day) updates.slot_day = m.slot_day
+    if (m.slot_day_edit) updates.slot_day = m.slot_day_edit
     await updateChallenge(m.id, updates)
     setEditResultModal(null)
     ntf('Resultado editado.')
@@ -423,17 +428,6 @@ export default function Admin() {
             </button>
             <button className="btn" onClick={() => setHistorialModal({ challenger_id: '', challenged_id: '', score_a: '', score_b: '', court: '', date: '' })}>
               <i className="ti ti-history" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Agregar historial
-            </button>
-            <button className="btn" onClick={async () => {
-              const msg = '🎾 Escalerilla BOA — Club BOA. Ingresa en: https://escalerilla-boa.vercel.app. Si ya eres jugador: entra con tu número de WhatsApp y completa tu perfil. Si quieres unirte: regístrate con tus datos y el admin te activará.'
-              if (navigator.share) {
-                await navigator.share({ text: msg })
-              } else {
-                await navigator.clipboard.writeText(msg)
-                ntf('Mensaje copiado al portapapeles.')
-              }
-            }}>
-              <i className="ti ti-user-plus" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Invitar jugadores
             </button>
           </div>
 
@@ -723,20 +717,13 @@ export default function Admin() {
                 {courts.map(c => <option key={c.id} value={c.id}>{c.nombre} ({c.surface})</option>)}
               </select>
             </div>
-            <div className="form-row"><label>Fecha</label>
+            <div className="form-row"><label>Fecha (dejar vacío para no cambiar)</label>
               <input type="date" value={(() => {
-                const d = editResultModal.slot_day
-                if (!d) return ''
-                // Convert DD-MM-YYYY to YYYY-MM-DD
-                if (d.match(/^\d{2}-\d{2}-\d{4}$/)) {
-                  const [day, month, year] = d.split('-')
-                  return `${year}-${month}-${day}`
-                }
-                // Already YYYY-MM-DD
-                if (d.match(/^\d{4}-\d{2}-\d{2}$/)) return d
-                return ''
+                const d = editResultModal.slot_day_edit || ''
+                return d
               })()} 
-                onChange={e => setEditResultModal(m => ({ ...m, slot_day: e.target.value }))} />
+                onChange={e => setEditResultModal(m => ({ ...m, slot_day_edit: e.target.value }))} />
+              {editResultModal.slot_day && <div style={{ fontSize: 11, color: '#888', marginTop: 3 }}>Fecha actual: {editResultModal.slot_day}</div>}
             </div>
             <div className="modal-actions">
               <button className="btn" onClick={() => setEditResultModal(null)}>Cancelar</button>
