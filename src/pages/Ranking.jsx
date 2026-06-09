@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getPlayers, createChallenge, getChallenges } from '../lib/supabase'
+import { getPlayers, createChallenge, getChallenges, supabase } from '../lib/supabase'
 import { notifyChallengeSent } from '../lib/notify'
 import { useSession } from '../components/SessionContext'
 
@@ -13,7 +13,7 @@ function trend(pos, prev) {
 }
 
 export default function Ranking() {
-  const { player } = useSession()
+  const { player, updateSession } = useSession()
   const navigate = useNavigate()
   const [players, setPlayers] = useState([])
   const [loading, setLoading] = useState(true)
@@ -45,6 +45,11 @@ export default function Ranking() {
         (c.ganador === 'challenged' && c.challenger_id === player?.id)
       ).length
       setMyStats({ wins, losses })
+      // Refrescar sesión con datos actualizados
+      if (player?.id) {
+        const { data: fresh } = await supabase.from('players').select('*').eq('id', player.id).single()
+        if (fresh) updateSession(fresh)
+      }
     } finally { setLoading(false) }
   }
 
