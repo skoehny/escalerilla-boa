@@ -21,6 +21,7 @@ export default function Ranking() {
   const [hasActive, setHasActive] = useState(false)
   const [challenges, setChallenges] = useState([])
   const [myStats, setMyStats] = useState({ wins: 0, losses: 0 })
+  const [playedThisWeek, setPlayedThisWeek] = useState(false)
 
   useEffect(() => { load() }, [])
 
@@ -30,7 +31,8 @@ export default function Ranking() {
       setPlayers(pl)
       const active = ch.some(c =>
         (c.challenger_id === player?.id || c.challenged_id === player?.id) &&
-        (c.status === 'pending' || c.status === 'accepted')
+        (c.status === 'pending' || c.status === 'accepted' ||
+         (c.status === 'completed' && c.ranking_applied === false))
       )
       setChallenges(ch)
       setHasActive(active)
@@ -45,6 +47,7 @@ export default function Ranking() {
         (c.ganador === 'challenged' && c.challenger_id === player?.id)
       ).length
       setMyStats({ wins, losses })
+      setPlayedThisWeek(active)
       // Refrescar sesión con datos actualizados
       if (player?.id) {
         const { data: fresh } = await supabase.from('players').select('*').eq('id', player.id).single()
@@ -113,7 +116,7 @@ export default function Ranking() {
             (c.status === 'pending' || c.status === 'accepted' ||
              (c.status === 'completed' && c.ranking_applied === false))
           )
-          const canChallenge = !isMe && p.posicion < player?.posicion && p.posicion >= player?.posicion - 3 && !p.lesionado && !player?.lesionado && !hasActive && !targetHasActive
+          const canChallenge = !isMe && p.posicion < player?.posicion && p.posicion >= player?.posicion - 3 && !p.lesionado && !player?.lesionado && !hasActive && !targetHasActive && !playedThisWeek
 
           return (
             <div key={p.id} className="row-item" style={isMe ? { background: '#f5f4f0', borderRadius: 8, padding: '8px', margin: '0 -6px' } : {}}>
@@ -135,14 +138,15 @@ export default function Ranking() {
                 </button>
               )}
               {!canChallenge && !isMe && !hasActive && !player?.lesionado && !p.lesionado && !targetHasActive
-                && !player?.wildcard_usada && p.posicion < player?.posicion && (
-                <button className="btn" style={{ padding: '3px 10px', fontSize: 12, borderColor: '#BA7517', color: '#633806', background: '#FAEEDA' }}
+                && !player?.wildcard_usada && p.posicion < player?.posicion
+                && !playedThisWeek && (
+                <button className="btn btn-warn" style={{ padding: '3px 10px', fontSize: 12 }}
                   onClick={() => {
                     if (window.confirm(`¿Usar tu Wild Card para desafiar a ${p.nombre} ${p.apellido} (#${p.posicion})? Solo tienes 1 por año.`)) {
                       handleChallenge(p, true)
                     }
                   }}>
-                  ⭐ WC
+                  Wild Card
                 </button>
               )}
             </div>
