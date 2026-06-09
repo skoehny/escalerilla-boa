@@ -558,12 +558,7 @@ export default function Admin() {
                   ? <button className="btn btn-warn" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => inactivatePlayer(p)}>Inactivar</button>
                   : <button className="btn btn-accept" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => setActivateModal(p)}>Activar</button>
                 }
-                {p.activo && p.wildcard_usada && (
-                  <button className="btn" style={{ fontSize: 11, padding: '2px 8px', borderColor: '#BA7517', color: '#633806' }}
-                    onClick={async () => { await updatePlayer(p.id, { wildcard_usada: false }); ntf(`Wild Card repuesta a ${p.nombre}.`); load() }}>
-                    ⭐ Reponer WC
-                  </button>
-                )}
+
               </div>
             ))}
           </div>
