@@ -20,6 +20,7 @@ export default function Admin() {
   const [editResultModal, setEditResultModal] = useState(null)
   const [historialModal, setHistorialModal] = useState(null)
   const [newChallengeModal, setNewChallengeModal] = useState(null)
+  const [editSlotModal, setEditSlotModal] = useState(null)
 
   useEffect(() => { load() }, [])
 
@@ -35,6 +36,27 @@ export default function Admin() {
   }
 
   function ntf(msg, type = 'ok') { setNotif({ msg, type }); setTimeout(() => setNotif(null), 4000) }
+
+  async function saveEditSlot() {
+    const m = editSlotModal
+    if (!m.court || !m.hour) { ntf('Selecciona cancha y hora', 'warn'); return }
+    try {
+      let slotDay = m.day
+      if (m.day && m.day.includes('-')) {
+        const d = new Date(m.day + 'T12:00:00')
+        slotDay = d.toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' })
+      }
+      await updateChallenge(m.id, {
+        slot_court: m.court,
+        slot_day: slotDay,
+        slot_hour: m.hour,
+        pago_confirmado: m.paid,
+      })
+      setEditSlotModal(null)
+      ntf('Partido actualizado.' + (m.paid ? ' Pago confirmado.' : ''))
+      load()
+    } catch (err) { ntf(err.message, 'err') }
+  }
 
   async function publishRanking() {
     const active = players.filter(p => p.activo).sort((a, b) => a.posicion - b.posicion)
@@ -130,10 +152,11 @@ export default function Admin() {
   function getNextWednesday() {
     const d = new Date()
     while (d.getDay() !== 3) d.setDate(d.getDate() + 1)
-    return d.toISOString().split('T')[0]
+    return d.toISOString().split('T')[0] // YYYY-MM-DD
   }
 
   function formatDateLabel(isoDate) {
+    if (!isoDate) return ''
     const d = new Date(isoDate + 'T12:00:00')
     return d.toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' })
   }
@@ -255,6 +278,7 @@ export default function Admin() {
                   </div>
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                     {!c.slot_day && <button className="btn btn-accept" style={{ fontSize: 12 }} onClick={() => setSlotModal({ challenge: c, court: courts[0]?.id, hour: HOURS[6], paid: false })}>Asignar cancha</button>}
+                    {c.slot_day && <button className="btn" style={{ fontSize: 12 }} onClick={() => setEditSlotModal({ id: c.id, court: c.slot_court, day: '', hour: c.slot_hour, paid: c.pago_confirmado })}>Editar</button>}
                     {c.slot_day && !c.pago_confirmado && <button className="btn btn-accept" style={{ fontSize: 12 }} onClick={() => validatePayment(c)}>Validar pago</button>}
                     {c.pago_confirmado && <span className="badge badge-green">Listo</span>}
                     <button className="btn btn-reject" style={{ fontSize: 12 }} onClick={() => expireChallenge(c)}>Caducar</button>
@@ -462,6 +486,42 @@ export default function Admin() {
             <div className="modal-actions">
               <button className="btn" onClick={() => setActivateModal(null)}>Cancelar</button>
               <button className="btn btn-accept" onClick={() => activatePlayer(activateModal, document.getElementById('act-pos').value)}>Activar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal editar partido */}
+      {editSlotModal && (
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setEditSlotModal(null) }}>
+          <div className="modal">
+            <h3>Editar partido</h3>
+            {editSlotModal.paid && (
+              <div className="notif notif-ok" style={{ marginBottom: 10 }}>
+                <i className="ti ti-check" aria-hidden="true" /> Pago confirmado — se mantendrá al editar
+              </div>
+            )}
+            <div className="form-row"><label>Cancha</label>
+              <select value={editSlotModal.court || ''} onChange={e => setEditSlotModal(m => ({ ...m, court: e.target.value }))}>
+                <option value="">Sin cancha</option>
+                {courts.map(c => <option key={c.id} value={c.id}>{c.nombre} ({c.surface})</option>)}
+              </select>
+            </div>
+            <div className="form-row"><label>Nuevo día (dejar vacío para no cambiar)</label>
+              <input type="date" value={editSlotModal.day || ''} onChange={e => setEditSlotModal(m => ({ ...m, day: e.target.value }))} />
+            </div>
+            <div className="form-row"><label>Hora</label>
+              <select value={editSlotModal.hour || HOURS[6]} onChange={e => setEditSlotModal(m => ({ ...m, hour: e.target.value }))}>
+                {HOURS.map(h => <option key={h} value={h}>{h}</option>)}
+              </select>
+            </div>
+            <div className="form-row" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input type="checkbox" id="edit-paid" checked={editSlotModal.paid || false} onChange={e => setEditSlotModal(m => ({ ...m, paid: e.target.checked }))} style={{ width: 16, height: 16 }} />
+              <label htmlFor="edit-paid" style={{ fontSize: 13, color: '#333', marginBottom: 0 }}>Pago confirmado</label>
+            </div>
+            <div className="modal-actions">
+              <button className="btn" onClick={() => setEditSlotModal(null)}>Cancelar</button>
+              <button className="btn btn-accept" onClick={saveEditSlot}>Guardar</button>
             </div>
           </div>
         </div>
