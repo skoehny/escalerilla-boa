@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { getChallenges, updateChallenge, getPlayers } from '../lib/supabase'
 import { notifyResult } from '../lib/notify'
 import { useSession } from '../components/SessionContext'
+import { supabase } from '../lib/supabase'
 
 function fmtDate(d) {
   if (!d) return ''
@@ -10,7 +11,7 @@ function fmtDate(d) {
 }
 
 export default function Resultados() {
-  const { player } = useSession()
+  const { player, updateSession } = useSession()
   const [challenges, setChallenges] = useState([])
   const [players, setPlayers] = useState([])
   const [scores, setScores] = useState({})
@@ -71,6 +72,9 @@ export default function Resultados() {
       if (loserFull) await import('../lib/supabase').then(m => m.updatePlayer(loserFull.id, { derrotas: (loserFull.derrotas || 0) + 1 }))
 
       await notifyResult(c.challenger, c.challenged, sa, sb, winnerP, null)
+      // Refrescar sesión del jugador actual
+      const { data: freshPlayer } = await supabase.from('players').select('*').eq('id', player.id).single()
+      if (freshPlayer) updateSession(freshPlayer)
       ntf(`Resultado guardado: ${sa}–${sb}${isTB ? ` (TB ${tbA}–${tbB})` : ''}. El ranking se actualiza el jueves.`)
       load()
     } catch (err) { ntf(err.message, 'err') }
