@@ -10,6 +10,16 @@ function fmtDate(d) {
   catch { return d }
 }
 
+
+function courtDot(courtId) {
+  const isHard = courtId === 'c3'
+  return <span style={{
+    display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
+    background: isHard ? '#60B8E0' : '#E8712A',
+    marginRight: 4, flexShrink: 0, verticalAlign: 'middle'
+  }} title={isHard ? 'Cancha dura' : 'Arcilla'} />
+}
+
 export default function Resultados() {
   const { player, updateSession } = useSession()
   const [challenges, setChallenges] = useState([])

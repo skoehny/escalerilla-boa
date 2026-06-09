@@ -19,6 +19,7 @@ export default function Ranking() {
   const [loading, setLoading] = useState(true)
   const [notif, setNotif] = useState(null)
   const [hasActive, setHasActive] = useState(false)
+  const [myStats, setMyStats] = useState({ wins: 0, losses: 0 })
 
   useEffect(() => { load() }, [])
 
@@ -31,6 +32,17 @@ export default function Ranking() {
         (c.status === 'pending' || c.status === 'accepted')
       )
       setHasActive(active)
+      // Calcular wins/losses desde historial
+      const completed = ch.filter(c => c.status === 'completed')
+      const wins = completed.filter(c =>
+        (c.ganador === 'challenger' && c.challenger_id === player?.id) ||
+        (c.ganador === 'challenged' && c.challenged_id === player?.id)
+      ).length
+      const losses = completed.filter(c =>
+        (c.ganador === 'challenger' && c.challenged_id === player?.id) ||
+        (c.ganador === 'challenged' && c.challenger_id === player?.id)
+      ).length
+      setMyStats({ wins, losses })
     } finally { setLoading(false) }
   }
 
@@ -98,7 +110,7 @@ export default function Ranking() {
                 {isMe && <span style={{ fontSize: 11, color: '#1D9E75', marginLeft: 4 }}>(tú)</span>}
                 {p.lesionado && <span className="badge badge-red" style={{ fontSize: 10, marginLeft: 4 }}>lesionado</span>}
               </span>
-              <span style={{ fontSize: 12, color: '#888' }}>{p.victorias}V {p.derrotas}D</span>
+              <span style={{ fontSize: 12, color: '#888' }}>{p.victorias || 0}V {p.derrotas || 0}D</span>
               <span style={{ width: 24, textAlign: 'center' }}>{trend(p.posicion, p.posicion_anterior)}</span>
               {canChallenge && (
                 <button className="btn btn-accept" style={{ padding: '3px 10px', fontSize: 12 }} onClick={() => handleChallenge(p)}>

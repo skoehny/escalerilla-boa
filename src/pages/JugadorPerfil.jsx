@@ -4,6 +4,16 @@ import { supabase, getChallenges } from '../lib/supabase'
 
 function ini(n, a) { return ((n?.[0] || '') + (a?.[0] || '')).toUpperCase() }
 
+
+function courtDot(courtId) {
+  const isHard = courtId === 'c3'
+  return <span style={{
+    display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
+    background: isHard ? '#60B8E0' : '#E8712A',
+    marginRight: 4, flexShrink: 0, verticalAlign: 'middle'
+  }} title={isHard ? 'Cancha dura' : 'Arcilla'} />
+}
+
 export default function JugadorPerfil() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -65,7 +75,7 @@ export default function JugadorPerfil() {
                 <span className={`badge ${won ? 'badge-green' : 'badge-red'}`} style={{ flexShrink: 0 }}>{won ? 'W' : 'L'}</span>
                 <span style={{ flex: 1, fontSize: 13 }}>vs {rival?.nombre} {rival?.apellido}</span>
                 <span style={{ fontSize: 13, fontWeight: 500 }}>{myScore}–{rivalScore}</span>
-                {c.slot_court && <span style={{ fontSize: 11, color: '#888', marginLeft: 6 }}>{c.slot_court}</span>}
+                {c.slot_court && <span style={{ marginLeft: 6, display: 'inline-flex', alignItems: 'center' }}>{courtDot(c.slot_court)}</span>}
                 {c.created_at && <span style={{ fontSize: 11, color: '#888', marginLeft: 6 }}>{new Date(c.created_at).toLocaleDateString('es-CL')}</span>}
               </div>
             )
