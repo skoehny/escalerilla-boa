@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useSession } from '../components/SessionContext'
-import { supabase } from '../lib/supabase'
-import { getChallenges } from '../lib/supabase'
+import { supabase, getChallenges } from '../lib/supabase'
 
 function ini(n, a) { return ((n?.[0] || '') + (a?.[0] || '')).toUpperCase() }
 
 export default function Perfil() {
-  const { player, updateSession } = useSession()
+  const { player, updateSession, logout } = useSession()
+  const navigate = useNavigate()
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState({ nombre: player?.nombre || '', apellido: player?.apellido || '', email: player?.email || '', telefono: player?.telefono || '' })
   const [pinForm, setPinForm] = useState({ current: '', new: '', confirm: '' })
@@ -21,14 +22,11 @@ export default function Perfil() {
     const data = await getChallenges()
     const mine = data.filter(c =>
       (c.challenger_id === player?.id || c.challenged_id === player?.id) && c.status === 'completed'
-    )
+    ).sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
     setHistory(mine)
   }
 
-  function ntf(msg, type = 'ok') {
-    setNotif({ msg, type })
-    setTimeout(() => setNotif(null), 3500)
-  }
+  function ntf(msg, type = 'ok') { setNotif({ msg, type }); setTimeout(() => setNotif(null), 3500) }
 
   async function saveProfile() {
     if (!form.nombre.trim() || !form.apellido.trim()) { ntf('Nombre y apellido son obligatorios', 'err'); return }
@@ -36,22 +34,19 @@ export default function Perfil() {
     setLoading(true)
     try {
       const { data, error } = await supabase.from('players').update({
-        nombre: form.nombre.trim(),
-        apellido: form.apellido.trim(),
-        email: form.email.trim(),
-        telefono: form.telefono.replace(/\s/g, ''),
+        nombre: form.nombre.trim(), apellido: form.apellido.trim(),
+        email: form.email.trim(), telefono: form.telefono.replace(/\s/g, ''),
       }).eq('id', player.id).select().single()
       if (error) throw error
       updateSession(data)
       setEditing(false)
       ntf('Perfil actualizado.')
-    } catch (err) {
-      ntf(err.message, 'err')
-    } finally { setLoading(false) }
+    } catch (err) { ntf(err.message, 'err') }
+    finally { setLoading(false) }
   }
 
   async function savePin() {
-    if (!/^\d{4,8}$/.test(pinForm.new)) { ntf('El PIN debe tener 4 a 8 dígitos', 'err'); return }
+    if (!/^\d{4,8}$/.test(pinForm.new)) { ntf('PIN debe tener 4 a 8 dígitos', 'err'); return }
     if (pinForm.new !== pinForm.confirm) { ntf('Los PINs no coinciden', 'err'); return }
     setLoading(true)
     try {
@@ -63,27 +58,34 @@ export default function Perfil() {
       updateSession(data)
       setPinForm({ current: '', new: '', confirm: '' })
       ntf('PIN actualizado.')
-    } catch (err) {
-      ntf(err.message, 'err')
-    } finally { setLoading(false) }
+    } catch (err) { ntf(err.message, 'err') }
+    finally { setLoading(false) }
   }
 
-  const wins = history.filter(c => (c.winner === 'challenger' && c.challenger_id === player?.id) || (c.winner === 'challenged' && c.challenged_id === player?.id) || (c.ganador === 'challenger' && c.challenger_id === player?.id) || (c.ganador === 'challenged' && c.challenged_id === player?.id))
-  const losses = history.filter(c => !wins.includes(c))
+  function handleLogout() { logout(); navigate('/auth') }
+
+  const wins = history.filter(c =>
+    (c.ganador === 'challenger' && c.challenger_id === player?.id) ||
+    (c.ganador === 'challenged' && c.challenged_id === player?.id)
+  )
+
+  function fmtDate(d) {
+    if (!d) return ''
+    try { return new Date(d).toLocaleDateString('es-CL', { day: 'numeric', month: 'short', year: 'numeric' }) }
+    catch { return d }
+  }
 
   return (
     <div>
       {notif && <div className={`notif notif-${notif.type}`}><i className={`ti ti-${notif.type === 'ok' ? 'check' : 'alert-triangle'}`} aria-hidden="true" /> {notif.msg}</div>}
 
-      {/* Header perfil */}
+      {/* Header */}
       <div className="card" style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 10 }}>
-        <div className="avatar" style={{ width: 52, height: 52, fontSize: 18 }}>
-          {ini(player?.nombre, player?.apellido)}
-        </div>
+        <div className="avatar" style={{ width: 52, height: 52, fontSize: 18 }}>{ini(player?.nombre, player?.apellido)}</div>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 16, fontWeight: 500 }}>{player?.nombre} {player?.apellido}</div>
           <div style={{ fontSize: 13, color: '#888', marginTop: 2 }}>#{player?.posicion} en el ranking</div>
-          <div style={{ fontSize: 12, color: '#888', marginTop: 1 }}>{wins.length}V {losses.length}D</div>
+          <div style={{ fontSize: 12, color: '#888', marginTop: 1 }}>{wins.length}V {history.length - wins.length}D · {history.length} partidos</div>
         </div>
         <button className="btn btn-accept" style={{ fontSize: 12 }} onClick={() => setEditing(v => !v)}>
           {editing ? 'Cancelar' : 'Editar'}
@@ -95,25 +97,22 @@ export default function Perfil() {
         <div className="card" style={{ marginBottom: 10 }}>
           <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 10 }}>Editar perfil</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            <div className="form-row">
-              <label>Nombre</label>
-              <input value={form.nombre} onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))} />
-            </div>
-            <div className="form-row">
-              <label>Apellido</label>
-              <input value={form.apellido} onChange={e => setForm(f => ({ ...f, apellido: e.target.value }))} />
-            </div>
+            <div className="form-row"><label>Nombre</label><input value={form.nombre} onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))} /></div>
+            <div className="form-row"><label>Apellido</label><input value={form.apellido} onChange={e => setForm(f => ({ ...f, apellido: e.target.value }))} /></div>
           </div>
-          <div className="form-row">
-            <label>Email</label>
-            <input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
-          </div>
+          <div className="form-row"><label>Email</label><input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} /></div>
           <div className="form-row">
             <label>Teléfono</label>
             <div style={{ display: 'flex', gap: 6 }}>
               <span style={{ display: 'flex', alignItems: 'center', padding: '0 10px', background: '#f5f4f0', border: '0.5px solid #ccc', borderRadius: 8, fontSize: 13, color: '#888', whiteSpace: 'nowrap', height: 36 }}>🇨🇱 +56</span>
               <input value={form.telefono} onChange={e => setForm(f => ({ ...f, telefono: e.target.value.replace(/[^0-9]/g, '') }))} style={{ flex: 1 }} />
             </div>
+          </div>
+          {/* Posición — solo lectura para jugadores */}
+          <div className="form-row">
+            <label>Posición en el ranking</label>
+            <input value={player?.posicion || ''} disabled style={{ background: '#f5f4f0', color: '#888', cursor: 'not-allowed' }} />
+            <div style={{ fontSize: 11, color: '#888', marginTop: 3 }}>Solo el administrador puede modificar la posición</div>
           </div>
           <button className="btn btn-primary btn-block" onClick={saveProfile} disabled={loading}>
             {loading ? 'Guardando...' : 'Guardar cambios'}
@@ -142,7 +141,7 @@ export default function Perfil() {
             onChange={e => setPinForm(f => ({ ...f, confirm: e.target.value.replace(/[^0-9]/g, '').slice(0, 8) }))}
             placeholder="••••" maxLength={8} inputMode="numeric" />
         </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
           <input type="checkbox" id="show-pin" checked={showPin} onChange={e => setShowPin(e.target.checked)} style={{ width: 16, height: 16 }} />
           <label htmlFor="show-pin" style={{ fontSize: 12, color: '#888' }}>Mostrar PINs</label>
         </div>
@@ -155,7 +154,7 @@ export default function Perfil() {
       <div style={{ fontSize: 12, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
         Historial de partidos
       </div>
-      <div className="card">
+      <div className="card" style={{ marginBottom: 10 }}>
         {history.length === 0
           ? <p style={{ fontSize: 13, color: '#888', textAlign: 'center', padding: '12px 0' }}>Sin partidos jugados aún</p>
           : history.map(c => {
@@ -164,19 +163,26 @@ export default function Perfil() {
             const rival = isChallenger ? c.challenged : c.challenger
             const myScore = isChallenger ? c.score_a : c.score_b
             const rivalScore = isChallenger ? c.score_b : c.score_a
+            const hasTB = c.tiebreak_a !== null && c.tiebreak_b !== null
             return (
               <div key={c.id} className="row-item">
-                <span className={`badge ${won ? 'badge-green' : 'badge-red'}`} style={{ flexShrink: 0 }}>{won ? 'W' : 'L'}</span>
-                <span style={{ flex: 1, fontSize: 13 }}>
-                  vs {rival?.nombre} {rival?.apellido}
+                <span className={`badge ${won ? 'badge-green' : 'badge-red'}`} style={{ flexShrink: 0, width: 20, textAlign: 'center' }}>{won ? 'W' : 'L'}</span>
+                <span style={{ flex: 1, fontSize: 13 }}>vs {rival?.nombre} {rival?.apellido}</span>
+                <span style={{ fontSize: 13, fontWeight: 500 }}>
+                  {myScore}–{rivalScore}{hasTB ? ` (TB ${isChallenger ? c.tiebreak_a : c.tiebreak_b}–${isChallenger ? c.tiebreak_b : c.tiebreak_a})` : ''}{c.is_wo ? ' (WO)' : ''}
                 </span>
-                <span style={{ fontSize: 13, fontWeight: 500 }}>{myScore}–{rivalScore}</span>
-                {c.slot_court && <span style={{ fontSize: 11, color: '#888', marginLeft: 6 }}>{c.slot_court}</span>}
+                <span style={{ fontSize: 11, color: '#888', marginLeft: 6 }}>{fmtDate(c.created_at)}</span>
               </div>
             )
           })
         }
       </div>
+
+      {/* Cerrar sesión */}
+      <button className="btn btn-block" style={{ color: '#A32D2D', borderColor: '#F09595', marginBottom: 20 }} onClick={handleLogout}>
+        <i className="ti ti-logout" style={{ verticalAlign: -2, marginRight: 6 }} aria-hidden="true" />
+        Cerrar sesión
+      </button>
     </div>
   )
 }

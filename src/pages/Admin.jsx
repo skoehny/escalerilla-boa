@@ -69,18 +69,41 @@ export default function Admin() {
   // ── Ranking ──────────────────────────────────────────────
   async function publishRanking() {
     const active = players.filter(p => p.activo).sort((a, b) => a.posicion - b.posicion)
-    const snapshot = active.map(p => ({ player_id: p.id, posicion: p.posicion, posicion_anterior: p.posicion_anterior }))
-    await supabase.from('ranking_snapshots').insert({ data: snapshot })
-    // Save to history
+
+    // Calcular movimientos de partidos completados esta semana
+    const pending = challenges.filter(c => c.status === 'completed' && !c.ranking_applied)
+    for (const c of pending) {
+      const ch = players.find(p => p.id === c.challenger_id)
+      const cd = players.find(p => p.id === c.challenged_id)
+      if (!ch || !cd) continue
+      if (c.ganador === 'challenger' && ch.posicion > cd.posicion) {
+        const wp = ch.posicion, lp = cd.posicion
+        for (const p of players) {
+          if (p.posicion >= lp && p.posicion < wp) {
+            await updatePlayer(p.id, { posicion_anterior: p.posicion, posicion: p.posicion + 1 })
+            p.posicion = p.posicion + 1
+          }
+        }
+        await updatePlayer(ch.id, { posicion_anterior: ch.posicion, posicion: lp })
+        ch.posicion = lp
+      } else if (c.ganador === 'challenged' && cd.posicion > ch.posicion) {
+        // Desafiado gana — no mueve ranking
+      }
+      await updateChallenge(c.id, { ranking_applied: true })
+    }
+
+    // Snapshot y historial
+    const refreshed = players.filter(p => p.activo).sort((a, b) => a.posicion - b.posicion)
+    await supabase.from('ranking_snapshots').insert({ data: refreshed.map(p => ({ player_id: p.id, posicion: p.posicion, posicion_anterior: p.posicion_anterior })) })
     const { data: cfg } = await supabase.from('weekly_config').select('semana').eq('id', 1).single()
     await supabase.from('ranking_history').insert({
       semana: cfg?.semana || 0,
       fecha: new Date().toISOString().split('T')[0],
-      data: active.map(p => ({ id: p.id, nombre: p.nombre, apellido: p.apellido, posicion: p.posicion, victorias: p.victorias, derrotas: p.derrotas }))
+      data: refreshed.map(p => ({ id: p.id, nombre: p.nombre, apellido: p.apellido, posicion: p.posicion, victorias: p.victorias, derrotas: p.derrotas }))
     })
-    await Promise.all(active.map(p => updatePlayer(p.id, { posicion_anterior: p.posicion })))
-    await notifyRankingUpdated(cfg?.semana || '—', active.slice(0, 5))
-    ntf('Ranking publicado.')
+    await Promise.all(refreshed.map(p => updatePlayer(p.id, { posicion_anterior: p.posicion })))
+    await notifyRankingUpdated(cfg?.semana || '—', refreshed.slice(0, 5))
+    ntf('Ranking publicado. Posiciones actualizadas.')
     load()
   }
 
@@ -95,9 +118,10 @@ export default function Admin() {
 
   // ── Jugadores ────────────────────────────────────────────
   async function activatePlayer(p, posicion) {
-    await updatePlayer(p.id, { activo: true, posicion: parseInt(posicion) })
+    const pos = posicion ? parseInt(posicion) : (Math.max(...players.filter(x => x.activo && x.posicion).map(x => x.posicion), 0) + 1)
+    await updatePlayer(p.id, { activo: true, posicion: pos })
     setActivateModal(null)
-    ntf(`${p.nombre} activado en #${posicion}.`)
+    ntf(`${p.nombre} activado en #${pos}.`)
     load()
   }
 
@@ -116,9 +140,31 @@ export default function Admin() {
 
   async function saveEditPlayer() {
     const p = editPlayerModal
-    await updatePlayer(p.id, { nombre: p.nombre, apellido: p.apellido, email: p.email, telefono: p.telefono, posicion: parseInt(p.posicion), es_admin: p.es_admin })
+    const newPos = parseInt(p.posicion)
+    const oldPos = players.find(x => x.id === p.id)?.posicion
+    
+    // Reorder other players if position changed
+    if (newPos !== oldPos && newPos && oldPos) {
+      if (newPos < oldPos) {
+        // Moving up: shift others down
+        for (const pl of players) {
+          if (pl.id !== p.id && pl.posicion >= newPos && pl.posicion < oldPos) {
+            await updatePlayer(pl.id, { posicion: pl.posicion + 1 })
+          }
+        }
+      } else {
+        // Moving down: shift others up
+        for (const pl of players) {
+          if (pl.id !== p.id && pl.posicion > oldPos && pl.posicion <= newPos) {
+            await updatePlayer(pl.id, { posicion: pl.posicion - 1 })
+          }
+        }
+      }
+    }
+    
+    await updatePlayer(p.id, { nombre: p.nombre, apellido: p.apellido, email: p.email, telefono: p.telefono, posicion: newPos, es_admin: p.es_admin })
     setEditPlayerModal(null)
-    ntf('Perfil actualizado.')
+    ntf('Perfil actualizado. Ranking reordenado.')
     load()
   }
 
@@ -226,17 +272,10 @@ export default function Admin() {
       })
       if (winnerP) await updatePlayer(winnerP.id, { victorias: (winnerP.victorias || 0) + 1 })
       if (loserP) await updatePlayer(loserP.id, { derrotas: (loserP.derrotas || 0) + 1 })
-      // Mover ranking si ganó el desafiante
-      if (winner === 'challenger' && ch && cd && ch.posicion > cd.posicion) {
-        const wp = ch.posicion, lp = cd.posicion
-        for (const p of players) {
-          if (p.posicion >= lp && p.posicion < wp) await updatePlayer(p.id, { posicion_anterior: p.posicion, posicion: p.posicion + 1 })
-        }
-        await updatePlayer(ch.id, { posicion_anterior: ch.posicion, posicion: lp })
-      }
+      // NO mover ranking — se actualiza el jueves al publicar
       await notifyResult(ch, cd, sa, sb, winnerP, null)
       setResultModal(null)
-      ntf(`Resultado guardado: ${sa}–${sb}. ${winnerP?.nombre} gana.`)
+      ntf(`Resultado guardado: ${sa}–${sb}. ${winnerP?.nombre} gana. Ranking se actualiza el jueves.`)
       load()
     } catch (err) { ntf(err.message, 'err') }
   }
@@ -809,7 +848,10 @@ export default function Admin() {
           <div className="modal">
             <h3>Activar jugador</h3>
             <p style={{ fontSize: 13, color: '#555', marginBottom: 12 }}>{activateModal.nombre} {activateModal.apellido}</p>
-            <div className="form-row"><label>Posición inicial</label><input type="number" id="act-pos" min="1" max="100" placeholder="ej: 12" /></div>
+            <div className="form-row">
+              <label>Posición inicial (dejar vacío = última posición)</label>
+              <input type="number" id="act-pos" min="1" max="100" placeholder={`ej: ${Math.max(...players.filter(x => x.activo && x.posicion).map(x => x.posicion), 0) + 1}`} />
+            </div>
             <div className="modal-actions">
               <button className="btn" onClick={() => setActivateModal(null)}>Cancelar</button>
               <button className="btn btn-accept" onClick={() => activatePlayer(activateModal, document.getElementById('act-pos').value)}>Activar</button>
