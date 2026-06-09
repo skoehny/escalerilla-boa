@@ -127,24 +127,41 @@ export default function Admin() {
     load()
   }
 
+  function getNextWednesday() {
+    const d = new Date()
+    while (d.getDay() !== 3) d.setDate(d.getDate() + 1)
+    return d.toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' })
+  }
+
   async function createChallengeAdmin() {
     const m = newChallengeModal
     if (!m.challenger_id || !m.challenged_id) { ntf('Selecciona ambos jugadores', 'err'); return }
     if (m.challenger_id === m.challenged_id) { ntf('No pueden ser el mismo jugador', 'err'); return }
-    const { data, error } = await supabase.from('challenges').insert({
-      challenger_id: m.challenger_id,
-      challenged_id: m.challenged_id,
-      status: 'accepted',
-      deadline: m.deadline || null,
-      slot_court: m.court || null,
-      slot_day: m.day || null,
-      slot_hour: m.hour || null,
-      pago_confirmado: m.paid || false,
-    }).select().single()
-    if (error) { ntf(error.message, 'err'); return }
-    setNewChallengeModal(null)
-    ntf('Desafío creado y confirmado.')
-    load()
+    try {
+      const deadline = getNextWednesday()
+      // Format day from date picker
+      let slotDay = null
+      if (m.day) {
+        const d = new Date(m.day + 'T12:00:00')
+        slotDay = d.toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' })
+      }
+      const { error } = await supabase.from('challenges').insert({
+        challenger_id: m.challenger_id,
+        challenged_id: m.challenged_id,
+        status: 'accepted',
+        deadline,
+        slot_court: m.court || null,
+        slot_day: slotDay,
+        slot_hour: m.hour || null,
+        pago_confirmado: m.paid || false,
+      })
+      if (error) throw error
+      setNewChallengeModal(null)
+      ntf('Desafío creado y confirmado.')
+      load()
+    } catch (err) {
+      ntf(err.message || 'Error al crear desafío', 'err')
+    }
   }
 
   async function addHistorial() {
@@ -462,8 +479,9 @@ export default function Admin() {
                 {players.filter(p => p.activo).map(p => <option key={p.id} value={p.id}>{p.posicion}. {p.nombre} {p.apellido}</option>)}
               </select>
             </div>
-            <div className="form-row"><label>Fecha límite</label>
-              <input type="text" value={newChallengeModal.deadline} onChange={e => setNewChallengeModal(m => ({ ...m, deadline: e.target.value }))} placeholder="ej: Mié 11 Jun" />
+            <div style={{ background: '#f5f4f0', borderRadius: 8, padding: '8px 10px', fontSize: 12, color: '#888', marginBottom: 10 }}>
+              <i className="ti ti-calendar" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />
+              Fecha límite: <strong>{getNextWednesday()}</strong> (próximo miércoles)
             </div>
             <div className="form-row"><label>Cancha (opcional)</label>
               <select value={newChallengeModal.court} onChange={e => setNewChallengeModal(m => ({ ...m, court: e.target.value }))}>
@@ -472,8 +490,8 @@ export default function Admin() {
               </select>
             </div>
             {newChallengeModal.court && <>
-              <div className="form-row"><label>Día</label>
-                <input type="text" value={newChallengeModal.day} onChange={e => setNewChallengeModal(m => ({ ...m, day: e.target.value }))} placeholder="ej: Lun 09 Jun" />
+              <div className="form-row"><label>Día del partido</label>
+                <input type="date" value={newChallengeModal.day} onChange={e => setNewChallengeModal(m => ({ ...m, day: e.target.value }))} />
               </div>
               <div className="form-row"><label>Hora</label>
                 <select value={newChallengeModal.hour} onChange={e => setNewChallengeModal(m => ({ ...m, hour: e.target.value }))}>
