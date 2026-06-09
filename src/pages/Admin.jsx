@@ -939,6 +939,10 @@ export default function Admin() {
               <input type="checkbox" id="admin-check" checked={editPlayerModal.es_admin || false} onChange={e => setEditPlayerModal(m => ({ ...m, es_admin: e.target.checked }))} style={{ width: 16, height: 16 }} />
               <label htmlFor="admin-check" style={{ fontSize: 13, color: '#333', marginBottom: 0 }}>Es administrador</label>
             </div>
+            <div className="form-row" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input type="checkbox" id="wc-check" checked={editPlayerModal.wildcard_usada || false} onChange={e => setEditPlayerModal(m => ({ ...m, wildcard_usada: e.target.checked }))} style={{ width: 16, height: 16 }} />
+              <label htmlFor="wc-check" style={{ fontSize: 13, color: '#333', marginBottom: 0 }}>Wild Card usada {editPlayerModal.wildcard_usada ? '(marcar para quitar)' : '(marcar para registrar como usada)'}</label>
+            </div>
             <div className="modal-actions">
               <button className="btn" onClick={() => setEditPlayerModal(null)}>Cancelar</button>
               <button className="btn btn-accept" onClick={saveEditPlayer}>Guardar</button>
