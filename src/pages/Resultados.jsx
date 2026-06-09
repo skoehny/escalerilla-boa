@@ -163,23 +163,41 @@ export default function Resultados() {
       <div className="card">
         {completed.length === 0
           ? <p style={{ fontSize: 13, color: '#888', textAlign: 'center', padding: '12px 0' }}>Sin partidos jugados aún</p>
-          : completed.map(c => {
-            const w = c.ganador === 'challenger' ? c.challenger : c.challenged
-            const hasTB = c.tiebreak_a != null && c.tiebreak_b != null
-            return (
-              <div key={c.id} className="row-item">
-                <span style={{ flex: 1, fontSize: 13 }}>
-                  <span style={{ fontWeight: c.ganador === 'challenger' ? 500 : 400 }}>{c.challenger?.nombre}</span>
-                  <span style={{ color: '#888', fontSize: 12, margin: '0 5px' }}>
-                    {c.score_a}–{c.score_b}{hasTB ? ` (${c.tiebreak_a}–${c.tiebreak_b})` : ''}{c.is_wo ? ' (WO)' : ''}
+          : (() => {
+            const active = completed.filter(c => c.ranking_applied === false)
+            const historic = completed.filter(c => c.ranking_applied === true || c.ranking_applied === null)
+            const renderRow = (c) => {
+              const w = c.ganador === 'challenger' ? c.challenger : c.challenged
+              const hasTB = c.tiebreak_a != null && c.tiebreak_b != null
+              return (
+                <div key={c.id} className="row-item">
+                  <span style={{ flex: 1, fontSize: 13 }}>
+                    <span style={{ fontWeight: c.ganador === 'challenger' ? 500 : 400 }}>{c.challenger?.nombre}</span>
+                    <span style={{ color: '#888', fontSize: 12, margin: '0 5px' }}>
+                      {c.score_a}–{c.score_b}{hasTB ? ` (${c.tiebreak_a}–${c.tiebreak_b})` : ''}{c.is_wo ? ' (WO)' : ''}
+                    </span>
+                    <span style={{ fontWeight: c.ganador === 'challenged' ? 500 : 400 }}>{c.challenged?.nombre}</span>
                   </span>
-                  <span style={{ fontWeight: c.ganador === 'challenged' ? 500 : 400 }}>{c.challenged?.nombre}</span>
-                </span>
-                <span className="badge badge-green">{w?.nombre}</span>
-                <span style={{ fontSize: 11, color: '#888', marginLeft: 6 }}>{fmtDate(c.created_at)}</span>
-              </div>
+                  <span className="badge badge-green" style={{ flexShrink: 0 }}>{w?.nombre}</span>
+                  <span style={{ fontSize: 11, color: '#888', marginLeft: 4, flexShrink: 0 }}>{fmtDate(c.created_at)}</span>
+                  {c.slot_court && <span style={{ marginLeft: 4, display: 'inline-flex', alignItems: 'center' }}>{courtDot(c.slot_court)}</span>}
+                </div>
+              )
+            }
+            return (
+              <>
+                {active.map(renderRow)}
+                {active.length > 0 && historic.length > 0 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '10px 0', color: '#aaa' }}>
+                    <div style={{ flex: 1, height: '0.5px', background: '#e0dfd8' }} />
+                    <span style={{ fontSize: 11, whiteSpace: 'nowrap' }}>Historial anterior</span>
+                    <div style={{ flex: 1, height: '0.5px', background: '#e0dfd8' }} />
+                  </div>
+                )}
+                {historic.map(renderRow)}
+              </>
             )
-          })
+          })()
         }
       </div>
     </div>

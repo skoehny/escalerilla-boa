@@ -300,13 +300,17 @@ export default function Admin() {
     const m = editResultModal
     const sa = parseInt(m.score_a), sb = parseInt(m.score_b)
     if (isNaN(sa) || isNaN(sb)) { ntf('Resultado inválido', 'err'); return }
-    const isTie = sa === 8 && sb === 8
+    const isTB = (sa === 9 && sb === 8) || (sa === 8 && sb === 9)
     const updates = { score_a: sa, score_b: sb, ganador: m.ganador }
-    if (isTie) {
+    if (isTB) {
       const tba = parseInt(m.tiebreak_a), tbb = parseInt(m.tiebreak_b)
       if (isNaN(tba) || isNaN(tbb)) { ntf('Ingresa el tiebreak', 'err'); return }
       updates.tiebreak_a = tba; updates.tiebreak_b = tbb
+    } else {
+      updates.tiebreak_a = null; updates.tiebreak_b = null
     }
+    if (m.slot_court) updates.slot_court = m.slot_court
+    if (m.slot_day) updates.slot_day = m.slot_day
     await updateChallenge(m.id, updates)
     setEditResultModal(null)
     ntf('Resultado editado.')
@@ -685,17 +689,18 @@ export default function Admin() {
                 <input type="number" min="0" max="9" value={editResultModal.score_b} onChange={e => setEditResultModal(m => ({ ...m, score_b: e.target.value }))} />
               </div>
             </div>
-            {String(editResultModal.score_a) === '8' && String(editResultModal.score_b) === '8' && (
+            {((String(editResultModal.score_a) === '9' && String(editResultModal.score_b) === '8') ||
+              (String(editResultModal.score_a) === '8' && String(editResultModal.score_b) === '9')) && (
               <div style={{ background: '#FAEEDA', borderRadius: 8, padding: '8px 10px', marginBottom: 10 }}>
-                <div style={{ fontSize: 12, fontWeight: 500, color: '#633806', marginBottom: 8 }}>Tiebreak 8-8</div>
+                <div style={{ fontSize: 12, fontWeight: 500, color: '#633806', marginBottom: 8 }}>Tiebreak 9-8</div>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <div className="form-row" style={{ flex: 1 }}>
                     <label>{editResultModal.challenger?.nombre}</label>
-                    <input type="number" min="0" value={editResultModal.tiebreak_a} onChange={e => setEditResultModal(m => ({ ...m, tiebreak_a: e.target.value }))} />
+                    <input type="number" min="0" value={editResultModal.tiebreak_a || ''} onChange={e => setEditResultModal(m => ({ ...m, tiebreak_a: e.target.value }))} />
                   </div>
                   <div className="form-row" style={{ flex: 1 }}>
                     <label>{editResultModal.challenged?.nombre}</label>
-                    <input type="number" min="0" value={editResultModal.tiebreak_b} onChange={e => setEditResultModal(m => ({ ...m, tiebreak_b: e.target.value }))} />
+                    <input type="number" min="0" value={editResultModal.tiebreak_b || ''} onChange={e => setEditResultModal(m => ({ ...m, tiebreak_b: e.target.value }))} />
                   </div>
                 </div>
               </div>
@@ -705,6 +710,16 @@ export default function Admin() {
                 <option value="challenger">{editResultModal.challenger?.nombre} {editResultModal.challenger?.apellido}</option>
                 <option value="challenged">{editResultModal.challenged?.nombre} {editResultModal.challenged?.apellido}</option>
               </select>
+            </div>
+            <div className="form-row"><label>Cancha</label>
+              <select value={editResultModal.slot_court || ''} onChange={e => setEditResultModal(m => ({ ...m, slot_court: e.target.value }))}>
+                <option value="">Sin especificar</option>
+                {courts.map(c => <option key={c.id} value={c.id}>{c.nombre} ({c.surface})</option>)}
+              </select>
+            </div>
+            <div className="form-row"><label>Fecha</label>
+              <input type="date" value={editResultModal.slot_day && editResultModal.slot_day.includes('-') && editResultModal.slot_day.length === 10 ? editResultModal.slot_day : ''} 
+                onChange={e => setEditResultModal(m => ({ ...m, slot_day: e.target.value }))} />
             </div>
             <div className="modal-actions">
               <button className="btn" onClick={() => setEditResultModal(null)}>Cancelar</button>
