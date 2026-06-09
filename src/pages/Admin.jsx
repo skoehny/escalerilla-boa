@@ -19,6 +19,7 @@ export default function Admin() {
   const [editPlayerModal, setEditPlayerModal] = useState(null)
   const [editResultModal, setEditResultModal] = useState(null)
   const [historialModal, setHistorialModal] = useState(null)
+  const [newChallengeModal, setNewChallengeModal] = useState(null)
 
   useEffect(() => { load() }, [])
 
@@ -112,9 +113,37 @@ export default function Admin() {
     const m = editResultModal
     const sa = parseInt(m.score_a), sb = parseInt(m.score_b)
     if (isNaN(sa) || isNaN(sb)) { ntf('Resultado inválido', 'err'); return }
-    await updateChallenge(m.id, { score_a: sa, score_b: sb, ganador: m.ganador })
+    const isTie = sa === 8 && sb === 8
+    const updates = { score_a: sa, score_b: sb, ganador: m.ganador }
+    if (isTie) {
+      const tba = parseInt(m.tiebreak_a), tbb = parseInt(m.tiebreak_b)
+      if (isNaN(tba) || isNaN(tbb)) { ntf('Ingresa el tiebreak', 'err'); return }
+      updates.tiebreak_a = tba
+      updates.tiebreak_b = tbb
+    }
+    await updateChallenge(m.id, updates)
     setEditResultModal(null)
     ntf('Resultado editado.')
+    load()
+  }
+
+  async function createChallengeAdmin() {
+    const m = newChallengeModal
+    if (!m.challenger_id || !m.challenged_id) { ntf('Selecciona ambos jugadores', 'err'); return }
+    if (m.challenger_id === m.challenged_id) { ntf('No pueden ser el mismo jugador', 'err'); return }
+    const { data, error } = await supabase.from('challenges').insert({
+      challenger_id: m.challenger_id,
+      challenged_id: m.challenged_id,
+      status: 'accepted',
+      deadline: m.deadline || null,
+      slot_court: m.court || null,
+      slot_day: m.day || null,
+      slot_hour: m.hour || null,
+      pago_confirmado: m.paid || false,
+    }).select().single()
+    if (error) { ntf(error.message, 'err'); return }
+    setNewChallengeModal(null)
+    ntf('Desafío creado y confirmado.')
     load()
   }
 
@@ -179,6 +208,9 @@ export default function Admin() {
           <button className="btn" onClick={resetWeek}><i className="ti ti-refresh" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Resetear semana</button>
           <button className="btn" onClick={() => setHistorialModal({ challenger_id: '', challenged_id: '', score_a: '', score_b: '', court: '', day: '', date: '' })}>
             <i className="ti ti-history" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Agregar historial
+          </button>
+          <button className="btn btn-accept" onClick={() => setNewChallengeModal({ challenger_id: '', challenged_id: '', deadline: '', court: '', day: '', hour: HOURS[6], paid: false })}>
+            <i className="ti ti-plus" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Nuevo desafío
           </button>
         </div>
       </Section>
@@ -336,6 +368,21 @@ export default function Admin() {
                 <option value="challenged">{editResultModal.challenged?.nombre} {editResultModal.challenged?.apellido}</option>
               </select>
             </div>
+            {editResultModal.score_a === '8' && editResultModal.score_b === '8' && (
+              <div style={{ background: '#FAEEDA', borderRadius: 8, padding: '8px 10px', marginBottom: 10 }}>
+                <div style={{ fontSize: 12, fontWeight: 500, color: '#633806', marginBottom: 8 }}>Tiebreak 8-8</div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <div className="form-row" style={{ flex: 1 }}>
+                    <label>{editResultModal.challenger?.nombre}</label>
+                    <input type="number" min="0" value={editResultModal.tiebreak_a || ''} onChange={e => setEditResultModal(m => ({ ...m, tiebreak_a: e.target.value }))} />
+                  </div>
+                  <div className="form-row" style={{ flex: 1 }}>
+                    <label>{editResultModal.challenged?.nombre}</label>
+                    <input type="number" min="0" value={editResultModal.tiebreak_b || ''} onChange={e => setEditResultModal(m => ({ ...m, tiebreak_b: e.target.value }))} />
+                  </div>
+                </div>
+              </div>
+            )}
             <div className="modal-actions">
               <button className="btn" onClick={() => setEditResultModal(null)}>Cancelar</button>
               <button className="btn btn-accept" onClick={saveEditResult}>Guardar</button>
@@ -393,6 +440,54 @@ export default function Admin() {
             <div className="modal-actions">
               <button className="btn" onClick={() => setActivateModal(null)}>Cancelar</button>
               <button className="btn btn-accept" onClick={() => activatePlayer(activateModal, document.getElementById('act-pos').value)}>Activar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal nuevo desafío */}
+      {newChallengeModal && (
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setNewChallengeModal(null) }}>
+          <div className="modal">
+            <h3>Crear desafío</h3>
+            <div className="form-row"><label>Desafiante</label>
+              <select value={newChallengeModal.challenger_id} onChange={e => setNewChallengeModal(m => ({ ...m, challenger_id: e.target.value }))}>
+                <option value="">Seleccionar...</option>
+                {players.filter(p => p.activo).map(p => <option key={p.id} value={p.id}>{p.posicion}. {p.nombre} {p.apellido}</option>)}
+              </select>
+            </div>
+            <div className="form-row"><label>Desafiado</label>
+              <select value={newChallengeModal.challenged_id} onChange={e => setNewChallengeModal(m => ({ ...m, challenged_id: e.target.value }))}>
+                <option value="">Seleccionar...</option>
+                {players.filter(p => p.activo).map(p => <option key={p.id} value={p.id}>{p.posicion}. {p.nombre} {p.apellido}</option>)}
+              </select>
+            </div>
+            <div className="form-row"><label>Fecha límite</label>
+              <input type="text" value={newChallengeModal.deadline} onChange={e => setNewChallengeModal(m => ({ ...m, deadline: e.target.value }))} placeholder="ej: Mié 11 Jun" />
+            </div>
+            <div className="form-row"><label>Cancha (opcional)</label>
+              <select value={newChallengeModal.court} onChange={e => setNewChallengeModal(m => ({ ...m, court: e.target.value }))}>
+                <option value="">Sin asignar</option>
+                {courts.map(c => <option key={c.id} value={c.id}>{c.nombre} ({c.surface})</option>)}
+              </select>
+            </div>
+            {newChallengeModal.court && <>
+              <div className="form-row"><label>Día</label>
+                <input type="text" value={newChallengeModal.day} onChange={e => setNewChallengeModal(m => ({ ...m, day: e.target.value }))} placeholder="ej: Lun 09 Jun" />
+              </div>
+              <div className="form-row"><label>Hora</label>
+                <select value={newChallengeModal.hour} onChange={e => setNewChallengeModal(m => ({ ...m, hour: e.target.value }))}>
+                  {HOURS.map(h => <option key={h} value={h}>{h}</option>)}
+                </select>
+              </div>
+            </>}
+            <div className="form-row" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input type="checkbox" id="new-paid" checked={newChallengeModal.paid} onChange={e => setNewChallengeModal(m => ({ ...m, paid: e.target.checked }))} style={{ width: 16, height: 16 }} />
+              <label htmlFor="new-paid" style={{ fontSize: 13, color: '#333', marginBottom: 0 }}>Pago confirmado</label>
+            </div>
+            <div className="modal-actions">
+              <button className="btn" onClick={() => setNewChallengeModal(null)}>Cancelar</button>
+              <button className="btn btn-accept" onClick={createChallengeAdmin}>Crear</button>
             </div>
           </div>
         </div>
