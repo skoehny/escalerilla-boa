@@ -1,22 +1,28 @@
 import { useState, useEffect } from 'react'
 import { getAllPlayers, getChallenges, updatePlayer, updateChallenge, confirmSlotPayment, getCourts, reserveSlot, supabase } from '../lib/supabase'
-import { notifyRankingUpdated, notifyReminder, notifyChallengeExpired, notifyPaymentConfirmed } from '../lib/notify'
+import { notifyRankingUpdated, notifyReminder, notifyChallengeExpired, notifyPaymentConfirmed, notifyResult } from '../lib/notify'
 
-const HOURS_30 = []
+const HOURS = []
 for (let h = 7; h < 22; h++) {
-  HOURS_30.push(`${String(h).padStart(2,'0')}:00`)
-  HOURS_30.push(`${String(h).padStart(2,'0')}:30`)
+  HOURS.push(`${String(h).padStart(2,'0')}:00`)
+  HOURS.push(`${String(h).padStart(2,'0')}:30`)
 }
-const HOURS = HOURS_30
 
 function fmtDate(d) {
   if (!d) return ''
-  if (d.includes('-') && d.length === 10) {
+  if (d && d.length === 10 && d.includes('-')) {
     const dt = new Date(d + 'T12:00:00')
     return dt.toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' })
   }
   return d
 }
+
+function getNextWednesday() {
+  const d = new Date()
+  while (d.getDay() !== 3) d.setDate(d.getDate() + 1)
+  return d.toISOString().split('T')[0]
+}
+
 function ini(n, a) { return ((n?.[0] || '') + (a?.[0] || '')).toUpperCase() }
 
 export default function Admin() {
@@ -24,17 +30,24 @@ export default function Admin() {
   const [challenges, setChallenges] = useState([])
   const [courts, setCourts] = useState([])
   const [snapshots, setSnapshots] = useState([])
+  const [rankingHistory, setRankingHistory] = useState([])
   const [loading, setLoading] = useState(true)
   const [notif, setNotif] = useState(null)
+  const [activeTab, setActiveTab] = useState('acciones')
+
+  // Modals
   const [injureModal, setInjureModal] = useState(null)
   const [injNote, setInjNote] = useState('')
   const [activateModal, setActivateModal] = useState(null)
   const [slotModal, setSlotModal] = useState(null)
+  const [editSlotModal, setEditSlotModal] = useState(null)
   const [editPlayerModal, setEditPlayerModal] = useState(null)
   const [editResultModal, setEditResultModal] = useState(null)
   const [historialModal, setHistorialModal] = useState(null)
   const [newChallengeModal, setNewChallengeModal] = useState(null)
-  const [editSlotModal, setEditSlotModal] = useState(null)
+  const [resultModal, setResultModal] = useState(null) // ingresar resultado desde admin
+  const [woModal, setWoModal] = useState(null)
+  const [cancelModal, setCancelModal] = useState(null)
 
   useEffect(() => { load() }, [])
 
@@ -46,40 +59,28 @@ export default function Admin() {
       setCourts(co)
       const { data: snaps } = await supabase.from('ranking_snapshots').select('*').order('created_at', { ascending: false }).limit(1)
       setSnapshots(snaps || [])
+      const { data: hist } = await supabase.from('ranking_history').select('*').order('semana', { ascending: false }).limit(10)
+      setRankingHistory(hist || [])
     } finally { setLoading(false) }
   }
 
   function ntf(msg, type = 'ok') { setNotif({ msg, type }); setTimeout(() => setNotif(null), 4000) }
 
-  async function saveEditSlot() {
-    const m = editSlotModal
-    if (!m.court || !m.hour) { ntf('Selecciona cancha y hora', 'warn'); return }
-    try {
-      let slotDay = m.day
-      if (m.day && m.day.includes('-')) {
-        const d = new Date(m.day + 'T12:00:00')
-        slotDay = d.toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' })
-      }
-      await updateChallenge(m.id, {
-        slot_court: m.court,
-        slot_day: slotDay,
-        slot_hour: m.hour,
-        pago_confirmado: m.paid,
-      })
-      setEditSlotModal(null)
-      ntf('Partido actualizado.' + (m.paid ? ' Pago confirmado.' : ''))
-      load()
-    } catch (err) { ntf(err.message, 'err') }
-  }
-
+  // ── Ranking ──────────────────────────────────────────────
   async function publishRanking() {
     const active = players.filter(p => p.activo).sort((a, b) => a.posicion - b.posicion)
-    // Guardar snapshot antes de publicar
     const snapshot = active.map(p => ({ player_id: p.id, posicion: p.posicion, posicion_anterior: p.posicion_anterior }))
     await supabase.from('ranking_snapshots').insert({ data: snapshot })
+    // Save to history
+    const { data: cfg } = await supabase.from('weekly_config').select('semana').eq('id', 1).single()
+    await supabase.from('ranking_history').insert({
+      semana: cfg?.semana || 0,
+      fecha: new Date().toISOString().split('T')[0],
+      data: active.map(p => ({ id: p.id, nombre: p.nombre, apellido: p.apellido, posicion: p.posicion, victorias: p.victorias, derrotas: p.derrotas }))
+    })
     await Promise.all(active.map(p => updatePlayer(p.id, { posicion_anterior: p.posicion })))
-    await notifyRankingUpdated('—', active.slice(0, 5))
-    ntf('Ranking publicado. Puedes deshacer si hay un error.')
+    await notifyRankingUpdated(cfg?.semana || '—', active.slice(0, 5))
+    ntf('Ranking publicado.')
     load()
   }
 
@@ -88,14 +89,15 @@ export default function Admin() {
     const snap = snapshots[0].data
     await Promise.all(snap.map(s => updatePlayer(s.player_id, { posicion: s.posicion, posicion_anterior: s.posicion_anterior })))
     await supabase.from('ranking_snapshots').delete().eq('id', snapshots[0].id)
-    ntf('Ranking restaurado al estado anterior. Los resultados no se modificaron.', 'warn')
+    ntf('Ranking restaurado. Resultados intactos.', 'warn')
     load()
   }
 
+  // ── Jugadores ────────────────────────────────────────────
   async function activatePlayer(p, posicion) {
     await updatePlayer(p.id, { activo: true, posicion: parseInt(posicion) })
     setActivateModal(null)
-    ntf(`${p.nombre} ${p.apellido} activado en posición #${posicion}.`)
+    ntf(`${p.nombre} activado en #${posicion}.`)
     load()
   }
 
@@ -120,6 +122,7 @@ export default function Admin() {
     load()
   }
 
+  // ── Desafíos ─────────────────────────────────────────────
   async function validatePayment(c) {
     await updateChallenge(c.id, { pago_confirmado: true })
     if (c.slot_court && c.slot_day && c.slot_hour) {
@@ -136,43 +139,32 @@ export default function Admin() {
   async function assignSlot() {
     if (!slotModal?.court || !slotModal?.hour) { ntf('Selecciona cancha y hora.', 'warn'); return }
     const c = slotModal.challenge
-    const day = c.deadline || new Date().toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' })
-    await updateChallenge(c.id, { slot_court: slotModal.court, slot_day: day, slot_hour: slotModal.hour, pago_confirmado: slotModal.paid })
-    await reserveSlot({ court_id: slotModal.court, dia: day, hora: slotModal.hour, reserved_by: c.challenger_id, challenge_id: c.id })
-    if (slotModal.paid) await confirmSlotPayment(slotModal.court, day, slotModal.hour)
-    setSlotModal(null)
-    ntf(`Cancha asignada${slotModal.paid ? ' y pago confirmado' : ''}.`)
-    load()
-  }
-
-  async function saveEditResult() {
-    const m = editResultModal
-    const sa = parseInt(m.score_a), sb = parseInt(m.score_b)
-    if (isNaN(sa) || isNaN(sb)) { ntf('Resultado inválido', 'err'); return }
-    const isTie = sa === 8 && sb === 8
-    const updates = { score_a: sa, score_b: sb, ganador: m.ganador }
-    if (isTie) {
-      const tba = parseInt(m.tiebreak_a), tbb = parseInt(m.tiebreak_b)
-      if (isNaN(tba) || isNaN(tbb)) { ntf('Ingresa el tiebreak', 'err'); return }
-      updates.tiebreak_a = tba
-      updates.tiebreak_b = tbb
+    const deadline = getNextWednesday()
+    let slotDay = slotModal.day
+    if (slotDay && slotDay.includes('-')) {
+      const d = new Date(slotDay + 'T12:00:00')
+      slotDay = d.toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' })
     }
-    await updateChallenge(m.id, updates)
-    setEditResultModal(null)
-    ntf('Resultado editado.')
+    await updateChallenge(c.id, { slot_court: slotModal.court, slot_day: slotDay || fmtDate(deadline), slot_hour: slotModal.hour, pago_confirmado: slotModal.paid })
+    if (slotModal.paid) await confirmSlotPayment(slotModal.court, slotDay || fmtDate(deadline), slotModal.hour)
+    setSlotModal(null)
+    ntf('Cancha asignada.')
     load()
   }
 
-  function getNextWednesday() {
-    const d = new Date()
-    while (d.getDay() !== 3) d.setDate(d.getDate() + 1)
-    return d.toISOString().split('T')[0] // YYYY-MM-DD
-  }
-
-  function formatDateLabel(isoDate) {
-    if (!isoDate) return ''
-    const d = new Date(isoDate + 'T12:00:00')
-    return d.toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' })
+  async function saveEditSlot() {
+    const m = editSlotModal
+    try {
+      let slotDay = m.day
+      if (slotDay && slotDay.includes('-')) {
+        const d = new Date(slotDay + 'T12:00:00')
+        slotDay = d.toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' })
+      }
+      await updateChallenge(m.id, { slot_court: m.court, slot_day: slotDay || m.currentDay, slot_hour: m.hour, pago_confirmado: m.paid })
+      setEditSlotModal(null)
+      ntf('Partido actualizado.')
+      load()
+    } catch (err) { ntf(err.message, 'err') }
   }
 
   async function createChallengeAdmin() {
@@ -181,7 +173,6 @@ export default function Admin() {
     if (m.challenger_id === m.challenged_id) { ntf('No pueden ser el mismo jugador', 'err'); return }
     try {
       const deadline = getNextWednesday()
-      // Format day from date picker
       let slotDay = null
       if (m.day) {
         const d = new Date(m.day + 'T12:00:00')
@@ -199,31 +190,9 @@ export default function Admin() {
       })
       if (error) throw error
       setNewChallengeModal(null)
-      ntf('Desafío creado y confirmado.')
+      ntf('Desafío creado.')
       load()
-    } catch (err) {
-      ntf(err.message || 'Error al crear desafío', 'err')
-    }
-  }
-
-  async function addHistorial() {
-    const h = historialModal
-    if (!h.challenger_id || !h.challenged_id || !h.score_a || !h.score_b) { ntf('Completa todos los campos', 'err'); return }
-    await supabase.from('challenges').insert({
-      challenger_id: h.challenger_id,
-      challenged_id: h.challenged_id,
-      status: 'completed',
-      score_a: parseInt(h.score_a),
-      score_b: parseInt(h.score_b),
-      ganador: parseInt(h.score_a) > parseInt(h.score_b) ? 'challenger' : 'challenged',
-      slot_court: h.court || null,
-      slot_day: h.day || null,
-      created_at: h.date ? new Date(h.date).toISOString() : new Date().toISOString(),
-      pago_confirmado: true,
-    })
-    setHistorialModal(null)
-    ntf('Partido histórico agregado.')
-    load()
+    } catch (err) { ntf(err.message || 'Error al crear', 'err') }
   }
 
   async function expireChallenge(c) {
@@ -235,11 +204,120 @@ export default function Admin() {
     load()
   }
 
+  // ── Resultados ───────────────────────────────────────────
+  async function saveResult() {
+    const m = resultModal
+    const sa = parseInt(m.score_a), sb = parseInt(m.score_b)
+    if (isNaN(sa) || isNaN(sb)) { ntf('Ingresa los games', 'err'); return }
+    const isTie = sa === 8 && sb === 8
+    if (isTie) {
+      const tba = parseInt(m.tiebreak_a), tbb = parseInt(m.tiebreak_b)
+      if (isNaN(tba) || isNaN(tbb) || Math.abs(tba - tbb) < 2) { ntf('Tiebreak inválido — diferencia mínima 2', 'err'); return }
+    }
+    const winner = isTie ? (parseInt(m.tiebreak_a) > parseInt(m.tiebreak_b) ? 'challenger' : 'challenged') : (sa > sb ? 'challenger' : 'challenged')
+    const ch = players.find(p => p.id === m.challenger_id)
+    const cd = players.find(p => p.id === m.challenged_id)
+    const winnerP = winner === 'challenger' ? ch : cd
+    const loserP = winner === 'challenger' ? cd : ch
+    try {
+      await updateChallenge(m.id, {
+        status: 'completed', score_a: sa, score_b: sb, ganador: winner,
+        ...(isTie ? { tiebreak_a: parseInt(m.tiebreak_a), tiebreak_b: parseInt(m.tiebreak_b) } : {})
+      })
+      if (winnerP) await updatePlayer(winnerP.id, { victorias: (winnerP.victorias || 0) + 1 })
+      if (loserP) await updatePlayer(loserP.id, { derrotas: (loserP.derrotas || 0) + 1 })
+      // Mover ranking si ganó el desafiante
+      if (winner === 'challenger' && ch && cd && ch.posicion > cd.posicion) {
+        const wp = ch.posicion, lp = cd.posicion
+        for (const p of players) {
+          if (p.posicion >= lp && p.posicion < wp) await updatePlayer(p.id, { posicion_anterior: p.posicion, posicion: p.posicion + 1 })
+        }
+        await updatePlayer(ch.id, { posicion_anterior: ch.posicion, posicion: lp })
+      }
+      await notifyResult(ch, cd, sa, sb, winnerP, null)
+      setResultModal(null)
+      ntf(`Resultado guardado: ${sa}–${sb}. ${winnerP?.nombre} gana.`)
+      load()
+    } catch (err) { ntf(err.message, 'err') }
+  }
+
+  async function saveEditResult() {
+    const m = editResultModal
+    const sa = parseInt(m.score_a), sb = parseInt(m.score_b)
+    if (isNaN(sa) || isNaN(sb)) { ntf('Resultado inválido', 'err'); return }
+    const isTie = sa === 8 && sb === 8
+    const updates = { score_a: sa, score_b: sb, ganador: m.ganador }
+    if (isTie) {
+      const tba = parseInt(m.tiebreak_a), tbb = parseInt(m.tiebreak_b)
+      if (isNaN(tba) || isNaN(tbb)) { ntf('Ingresa el tiebreak', 'err'); return }
+      updates.tiebreak_a = tba; updates.tiebreak_b = tbb
+    }
+    await updateChallenge(m.id, updates)
+    setEditResultModal(null)
+    ntf('Resultado editado.')
+    load()
+  }
+
+  // ── WO ──────────────────────────────────────────────────
+  async function declareWO() {
+    const m = woModal
+    const ch = players.find(p => p.id === m.challenger_id)
+    const cd = players.find(p => p.id === m.challenged_id)
+    const loser = m.wo_loser === 'challenger' ? ch : cd
+    const winner = m.wo_loser === 'challenger' ? cd : ch
+    try {
+      await updateChallenge(m.id, {
+        status: 'completed', score_a: m.wo_loser === 'challenger' ? 0 : 9,
+        score_b: m.wo_loser === 'challenger' ? 9 : 0,
+        ganador: m.wo_loser === 'challenger' ? 'challenged' : 'challenger',
+        is_wo: true,
+      })
+      if (winner) await updatePlayer(winner.id, { victorias: (winner.victorias || 0) + 1 })
+      if (loser) await updatePlayer(loser.id, { derrotas: (loser.derrotas || 0) + 1 })
+      // Mover ranking
+      if (m.wo_loser === 'challenged' && ch && cd && ch.posicion > cd.posicion) {
+        const wp = ch.posicion, lp = cd.posicion
+        for (const p of players) {
+          if (p.posicion >= lp && p.posicion < wp) await updatePlayer(p.id, { posicion_anterior: p.posicion, posicion: p.posicion + 1 })
+        }
+        await updatePlayer(ch.id, { posicion_anterior: ch.posicion, posicion: lp })
+      }
+      setWoModal(null)
+      ntf(`W.O. declarado. ${winner?.nombre} gana 9-0.`)
+      load()
+    } catch (err) { ntf(err.message, 'err') }
+  }
+
+  async function cancelMatch() {
+    await updateChallenge(cancelModal.id, { status: 'expired' })
+    setCancelModal(null)
+    ntf('Partido cancelado. Ambos jugadores quedan libres.', 'warn')
+    load()
+  }
+
+  // ── Historial ─────────────────────────────────────────────
+  async function addHistorial() {
+    const h = historialModal
+    if (!h.challenger_id || !h.challenged_id || !h.score_a || !h.score_b) { ntf('Completa todos los campos', 'err'); return }
+    await supabase.from('challenges').insert({
+      challenger_id: h.challenger_id, challenged_id: h.challenged_id,
+      status: 'completed', score_a: parseInt(h.score_a), score_b: parseInt(h.score_b),
+      ganador: parseInt(h.score_a) > parseInt(h.score_b) ? 'challenger' : 'challenged',
+      slot_court: h.court || null,
+      slot_day: h.date ? fmtDate(h.date) : null,
+      created_at: h.date ? new Date(h.date + 'T12:00:00').toISOString() : new Date().toISOString(),
+      pago_confirmado: true,
+    })
+    setHistorialModal(null)
+    ntf('Partido histórico agregado.')
+    load()
+  }
+
   async function sendReminder() {
-    const pending = challenges.filter(c => c.status === 'accepted').map(c => ({ a: `${c.challenger?.nombre}`, b: `${c.challenged?.nombre}` }))
+    const pending = challenges.filter(c => c.status === 'accepted').map(c => ({ a: c.challenger?.nombre, b: c.challenged?.nombre }))
     if (!pending.length) { ntf('No hay partidos pendientes.', 'warn'); return }
     await notifyReminder(pending)
-    ntf('Recordatorio enviado al grupo.')
+    ntf('Recordatorio enviado.')
   }
 
   async function resetWeek() {
@@ -255,115 +333,149 @@ export default function Admin() {
 
   if (loading) return <p style={{ color: '#888', fontSize: 13, padding: 24 }}>Cargando...</p>
 
+  const tabs = ['acciones', 'desafíos', 'resultados', 'jugadores', 'historial']
+
   return (
     <div>
       {notif && <div className={`notif notif-${notif.type}`}><i className={`ti ti-${notif.type === 'ok' ? 'check' : 'alert-triangle'}`} aria-hidden="true" /> {notif.msg}</div>}
 
-      <Section title="Acciones semanales">
-        <div className="card" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', padding: '10px 12px' }}>
-          <button className="btn btn-accept" onClick={publishRanking}><i className="ti ti-trophy" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Publicar ranking</button>
-          {snapshots.length > 0 && <button className="btn btn-warn" onClick={undoRanking}><i className="ti ti-arrow-back" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Deshacer ranking</button>}
-          <button className="btn btn-warn" onClick={sendReminder}><i className="ti ti-bell" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Recordatorio</button>
-          <button className="btn" onClick={resetWeek}><i className="ti ti-refresh" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Resetear semana</button>
-          <button className="btn" onClick={() => setHistorialModal({ challenger_id: '', challenged_id: '', score_a: '', score_b: '', court: '', day: '', date: '' })}>
-            <i className="ti ti-history" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Agregar historial
-          </button>
-          <button className="btn btn-accept" onClick={() => setNewChallengeModal({ challenger_id: '', challenged_id: '', deadline: '', court: '', day: '', hour: HOURS[6], paid: false })}>
-            <i className="ti ti-plus" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Nuevo desafío
-          </button>
-        </div>
-      </Section>
+      {/* Tabs */}
+      <div style={{ display: 'flex', gap: 0, marginBottom: 14, borderBottom: '0.5px solid #e0dfd8', overflowX: 'auto' }}>
+        {tabs.map(t => (
+          <button key={t} onClick={() => setActiveTab(t)} style={{
+            padding: '8px 14px', fontSize: 13, cursor: 'pointer', border: 'none',
+            background: 'transparent', color: activeTab === t ? '#1D9E75' : '#888',
+            borderBottom: activeTab === t ? '2px solid #1D9E75' : '2px solid transparent',
+            fontWeight: activeTab === t ? 500 : 400, whiteSpace: 'nowrap', marginBottom: -0.5,
+          }}>{t.charAt(0).toUpperCase() + t.slice(1)}</button>
+        ))}
+      </div>
 
-      <Section title={`Desafíos activos (${acceptedChallenges.length})`}>
-        <div className="card">
-          {acceptedChallenges.length === 0
-            ? <p style={{ fontSize: 13, color: '#888', textAlign: 'center', padding: '12px 0' }}>Sin desafíos activos</p>
-            : acceptedChallenges.map(c => {
-              const ch = c.challenger || players.find(p => p.id === c.challenger_id)
-              const cd = c.challenged || players.find(p => p.id === c.challenged_id)
-              const court = courts.find(co => co.id === c.slot_court)
-              return (
-                <div key={c.id} className="row-item" style={{ flexWrap: 'wrap', gap: 6 }}>
-                  <div style={{ flex: 1, minWidth: 160 }}>
-                    <div style={{ fontSize: 13, fontWeight: 500 }}>{ch?.nombre} vs {cd?.nombre}</div>
-                    <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>
-                      {c.slot_day ? `${court?.nombre || c.slot_court} · ${c.slot_day} · ${c.slot_hour} · ${c.pago_confirmado ? '✓ Pago ok' : 'Pago pendiente'}` : `Sin cancha · vence ${fmtDate(c.deadline)}`}
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    {!c.slot_day && <button className="btn btn-accept" style={{ fontSize: 12 }} onClick={() => setSlotModal({ challenge: c, court: courts[0]?.id, hour: HOURS[6], paid: false })}>Asignar cancha</button>}
-                    {c.slot_day && <button className="btn" style={{ fontSize: 12 }} onClick={() => setEditSlotModal({ id: c.id, court: c.slot_court, day: '', hour: c.slot_hour, paid: c.pago_confirmado })}>Editar</button>}
-                    {c.slot_day && !c.pago_confirmado && <button className="btn btn-accept" style={{ fontSize: 12 }} onClick={() => validatePayment(c)}>Validar pago</button>}
-                    {c.pago_confirmado && <span className="badge badge-green">Listo</span>}
-                    <button className="btn btn-reject" style={{ fontSize: 12 }} onClick={() => expireChallenge(c)}>Caducar</button>
-                  </div>
-                </div>
-              )
-            })
-          }
-        </div>
-      </Section>
+      {/* ACCIONES */}
+      {activeTab === 'acciones' && (
+        <div>
+          <div className="card" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', padding: '10px 12px' }}>
+            <button className="btn btn-accept" onClick={publishRanking}><i className="ti ti-trophy" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Publicar ranking</button>
+            {snapshots.length > 0 && <button className="btn btn-warn" onClick={undoRanking}><i className="ti ti-arrow-back" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Deshacer ranking</button>}
+            <button className="btn btn-warn" onClick={sendReminder}><i className="ti ti-bell" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Recordatorio</button>
+            <button className="btn" onClick={resetWeek}><i className="ti ti-refresh" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Resetear semana</button>
+            <button className="btn btn-accept" onClick={() => setNewChallengeModal({ challenger_id: '', challenged_id: '', court: '', day: '', hour: '18:00', paid: false })}>
+              <i className="ti ti-plus" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Nuevo desafío
+            </button>
+            <button className="btn" onClick={() => setHistorialModal({ challenger_id: '', challenged_id: '', score_a: '', score_b: '', court: '', date: '' })}>
+              <i className="ti ti-history" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Agregar historial
+            </button>
+          </div>
 
-      <Section title={`Resultados (${completedChallenges.length})`}>
-        <div className="card">
-          {completedChallenges.length === 0
-            ? <p style={{ fontSize: 13, color: '#888', textAlign: 'center', padding: '12px 0' }}>Sin resultados</p>
-            : completedChallenges.map(c => {
-              const ch = c.challenger || players.find(p => p.id === c.challenger_id)
-              const cd = c.challenged || players.find(p => p.id === c.challenged_id)
-              const w = c.ganador === 'challenger' ? ch : cd
-              return (
-                <div key={c.id} className="row-item">
-                  <span style={{ flex: 1, fontSize: 13 }}>
-                    <span style={{ fontWeight: c.ganador === 'challenger' ? 500 : 400 }}>{ch?.nombre}</span>
-                    <span style={{ color: '#888', fontSize: 12, margin: '0 5px' }}>{c.score_a}–{c.score_b}</span>
-                    <span style={{ fontWeight: c.ganador === 'challenged' ? 500 : 400 }}>{cd?.nombre}</span>
-                  </span>
-                  <span className="badge badge-green" style={{ marginRight: 8 }}>{w?.nombre}</span>
-                  <button className="btn" style={{ fontSize: 11, padding: '2px 8px' }}
-                    onClick={() => setEditResultModal({ ...c, challenger: ch, challenged: cd })}>
-                    Editar
-                  </button>
-                </div>
-              )
-            })
-          }
-        </div>
-      </Section>
-
-      {pendingActivation.length > 0 && (
-        <Section title={`Activar jugadores (${pendingActivation.length})`}>
+          {/* Lesiones */}
+          <div style={{ fontSize: 12, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', margin: '14px 0 8px' }}>Lesiones</div>
           <div className="card">
-            {pendingActivation.map(p => (
+            {activePlayers.map(p => (
               <div key={p.id} className="row-item">
-                <div className="avatar" style={{ width: 26, height: 26, fontSize: 10 }}>{ini(p.nombre, p.apellido)}</div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 13 }}>{p.nombre} {p.apellido}</div>
-                  <div style={{ fontSize: 11, color: '#888' }}>+56 {p.telefono}</div>
-                </div>
-                <button className="btn btn-accept" style={{ fontSize: 12 }} onClick={() => setActivateModal(p)}>Activar</button>
+                <span style={{ width: 24, textAlign: 'center', fontSize: 13, color: '#888' }}>{p.posicion}</span>
+                <div className="avatar" style={{ width: 26, height: 26, fontSize: 10, background: p.lesionado ? '#FCEBEB' : '#E1F5EE', color: p.lesionado ? '#A32D2D' : '#0F6E56' }}>{ini(p.nombre, p.apellido)}</div>
+                <span style={{ flex: 1, fontSize: 13 }}>{p.nombre} {p.apellido}{p.lesionado && p.lesion_nota ? <span style={{ fontSize: 11, color: '#A32D2D', marginLeft: 4 }}>· {p.lesion_nota}</span> : ''}</span>
+                {p.lesionado
+                  ? <button className="btn btn-accept" style={{ fontSize: 12 }} onClick={() => clearInjury(p)}>Alta</button>
+                  : <button className="btn btn-reject" style={{ fontSize: 12 }} onClick={() => { setInjureModal(p); setInjNote('') }}>Lesionado</button>}
               </div>
             ))}
           </div>
-        </Section>
+
+          {pendingActivation.length > 0 && <>
+            <div style={{ fontSize: 12, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', margin: '14px 0 8px' }}>Activar jugadores ({pendingActivation.length})</div>
+            <div className="card">
+              {pendingActivation.map(p => (
+                <div key={p.id} className="row-item">
+                  <div className="avatar" style={{ width: 26, height: 26, fontSize: 10 }}>{ini(p.nombre, p.apellido)}</div>
+                  <div style={{ flex: 1 }}><div style={{ fontSize: 13 }}>{p.nombre} {p.apellido}</div><div style={{ fontSize: 11, color: '#888' }}>+56 {p.telefono}</div></div>
+                  <button className="btn btn-accept" style={{ fontSize: 12 }} onClick={() => setActivateModal(p)}>Activar</button>
+                </div>
+              ))}
+            </div>
+          </>}
+        </div>
       )}
 
-      <Section title="Lesiones">
-        <div className="card">
-          {activePlayers.map(p => (
-            <div key={p.id} className="row-item">
-              <span style={{ width: 24, textAlign: 'center', fontSize: 13, color: '#888' }}>{p.posicion}</span>
-              <div className="avatar" style={{ width: 26, height: 26, fontSize: 10, background: p.lesionado ? '#FCEBEB' : '#E1F5EE', color: p.lesionado ? '#A32D2D' : '#0F6E56' }}>{ini(p.nombre, p.apellido)}</div>
-              <span style={{ flex: 1, fontSize: 13 }}>{p.nombre} {p.apellido}{p.lesionado && p.lesion_nota ? <span style={{ fontSize: 11, color: '#A32D2D', marginLeft: 4 }}>· {p.lesion_nota}</span> : ''}</span>
-              {p.lesionado
-                ? <button className="btn btn-accept" style={{ fontSize: 12 }} onClick={() => clearInjury(p)}>Alta</button>
-                : <button className="btn btn-reject" style={{ fontSize: 12 }} onClick={() => { setInjureModal(p); setInjNote('') }}>Lesionado</button>}
-            </div>
-          ))}
+      {/* DESAFÍOS */}
+      {activeTab === 'desafíos' && (
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>Desafíos activos ({acceptedChallenges.length})</div>
+          <div className="card">
+            {acceptedChallenges.length === 0
+              ? <p style={{ fontSize: 13, color: '#888', textAlign: 'center', padding: '12px 0' }}>Sin desafíos activos</p>
+              : acceptedChallenges.map(c => {
+                const ch = c.challenger || players.find(p => p.id === c.challenger_id)
+                const cd = c.challenged || players.find(p => p.id === c.challenged_id)
+                const court = courts.find(co => co.id === c.slot_court)
+                return (
+                  <div key={c.id} style={{ borderBottom: '0.5px solid #f0efe8', paddingBottom: 10, marginBottom: 10 }}>
+                    <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>{ch?.nombre} {ch?.apellido} vs {cd?.nombre} {cd?.apellido}</div>
+                    <div style={{ fontSize: 11, color: '#888', marginBottom: 8 }}>
+                      {c.slot_day ? `${court?.nombre || c.slot_court} · ${c.slot_day} · ${c.slot_hour} · ${c.pago_confirmado ? '✓ Pago ok' : 'Pago pendiente'}` : `Sin cancha · vence ${fmtDate(c.deadline)}`}
+                      {c.reagendado ? ' · ⚠️ Reagendado' : ''}
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {!c.slot_day
+                        ? <button className="btn btn-accept" style={{ fontSize: 12 }} onClick={() => setSlotModal({ challenge: c, court: courts[0]?.id, day: '', hour: '18:00', paid: false })}>Asignar cancha</button>
+                        : <button className="btn" style={{ fontSize: 12 }} onClick={() => setEditSlotModal({ id: c.id, court: c.slot_court, currentDay: c.slot_day, day: '', hour: c.slot_hour, paid: c.pago_confirmado })}>Editar</button>
+                      }
+                      {c.slot_day && !c.pago_confirmado && <button className="btn btn-accept" style={{ fontSize: 12 }} onClick={() => validatePayment(c)}>Validar pago</button>}
+                      <button className="btn btn-accept" style={{ fontSize: 12, borderColor: '#185FA5', color: '#185FA5' }}
+                        onClick={() => setResultModal({ ...c, challenger_id: c.challenger_id || c.challenger?.id, challenged_id: c.challenged_id || c.challenged?.id, challenger: ch, challenged: cd, score_a: '', score_b: '', tiebreak_a: '', tiebreak_b: '' })}>
+                        Ingresar resultado
+                      </button>
+                      <button className="btn btn-warn" style={{ fontSize: 12 }}
+                        onClick={() => setWoModal({ ...c, challenger_id: c.challenger_id || c.challenger?.id, challenged_id: c.challenged_id || c.challenged?.id, challenger: ch, challenged: cd, wo_loser: 'challenger' })}>
+                        W.O.
+                      </button>
+                      <button className="btn" style={{ fontSize: 12 }} onClick={() => setCancelModal(c)}>Cancelar</button>
+                      <button className="btn btn-reject" style={{ fontSize: 12 }} onClick={() => expireChallenge(c)}>Caducar</button>
+                    </div>
+                  </div>
+                )
+              })
+            }
+          </div>
         </div>
-      </Section>
+      )}
 
-      <Section title="Jugadores">
+      {/* RESULTADOS */}
+      {activeTab === 'resultados' && (
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>Resultados ({completedChallenges.length})</div>
+          <div className="card">
+            {completedChallenges.length === 0
+              ? <p style={{ fontSize: 13, color: '#888', textAlign: 'center', padding: '12px 0' }}>Sin resultados</p>
+              : completedChallenges.map(c => {
+                const ch = c.challenger || players.find(p => p.id === c.challenger_id)
+                const cd = c.challenged || players.find(p => p.id === c.challenged_id)
+                const w = c.ganador === 'challenger' ? ch : cd
+                const hasTB = c.tiebreak_a !== null && c.tiebreak_b !== null
+                return (
+                  <div key={c.id} className="row-item">
+                    <span style={{ flex: 1, fontSize: 13 }}>
+                      <span style={{ fontWeight: c.ganador === 'challenger' ? 500 : 400 }}>{ch?.nombre}</span>
+                      <span style={{ color: '#888', fontSize: 12, margin: '0 5px' }}>
+                        {c.score_a}–{c.score_b}{hasTB ? ` (TB ${c.tiebreak_a}–${c.tiebreak_b})` : ''}{c.is_wo ? ' (WO)' : ''}
+                      </span>
+                      <span style={{ fontWeight: c.ganador === 'challenged' ? 500 : 400 }}>{cd?.nombre}</span>
+                    </span>
+                    <span className="badge badge-green" style={{ marginRight: 8 }}>{w?.nombre}</span>
+                    <button className="btn" style={{ fontSize: 11, padding: '2px 8px' }}
+                      onClick={() => setEditResultModal({ ...c, challenger: ch, challenged: cd, tiebreak_a: c.tiebreak_a || '', tiebreak_b: c.tiebreak_b || '' })}>
+                      Editar
+                    </button>
+                  </div>
+                )
+              })
+            }
+          </div>
+        </div>
+      )}
+
+      {/* JUGADORES */}
+      {activeTab === 'jugadores' && (
         <div className="card">
           {players.map(p => (
             <div key={p.id} className="row-item">
@@ -376,9 +488,157 @@ export default function Admin() {
             </div>
           ))}
         </div>
-      </Section>
+      )}
 
-      {/* Modal asignar cancha */}
+      {/* HISTORIAL SEMANAL */}
+      {activeTab === 'historial' && (
+        <div>
+          {rankingHistory.length === 0
+            ? <p style={{ fontSize: 13, color: '#888', textAlign: 'center', padding: 24 }}>Sin historial aún. Se genera al publicar el ranking.</p>
+            : rankingHistory.map(week => (
+              <div key={week.id} style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8, color: '#555' }}>
+                  Semana {week.semana} — {fmtDate(week.fecha)}
+                </div>
+                <div className="card">
+                  {(week.data || []).slice(0, 10).map((p, i) => (
+                    <div key={p.id} className="row-item">
+                      <span style={{ width: 24, textAlign: 'center', fontSize: 13, color: '#888' }}>{p.posicion}</span>
+                      <span style={{ flex: 1, fontSize: 13 }}>{p.nombre} {p.apellido}</span>
+                      <span style={{ fontSize: 12, color: '#888' }}>{p.victorias}V {p.derrotas}D</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))
+          }
+        </div>
+      )}
+
+      {/* ── MODALS ── */}
+
+      {/* Ingresar resultado */}
+      {resultModal && (
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setResultModal(null) }}>
+          <div className="modal">
+            <h3>Ingresar resultado</h3>
+            <p style={{ fontSize: 13, color: '#555', marginBottom: 12 }}>{resultModal.challenger?.nombre} vs {resultModal.challenged?.nombre}</p>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <div className="form-row" style={{ flex: 1 }}>
+                <label>{resultModal.challenger?.nombre}</label>
+                <input type="number" min="0" max="9" value={resultModal.score_a} onChange={e => setResultModal(m => ({ ...m, score_a: e.target.value }))} />
+              </div>
+              <div className="form-row" style={{ flex: 1 }}>
+                <label>{resultModal.challenged?.nombre}</label>
+                <input type="number" min="0" max="9" value={resultModal.score_b} onChange={e => setResultModal(m => ({ ...m, score_b: e.target.value }))} />
+              </div>
+            </div>
+            {String(resultModal.score_a) === '8' && String(resultModal.score_b) === '8' && (
+              <div style={{ background: '#FAEEDA', borderRadius: 8, padding: '8px 10px', marginBottom: 10 }}>
+                <div style={{ fontSize: 12, fontWeight: 500, color: '#633806', marginBottom: 8 }}>Tiebreak 8-8</div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <div className="form-row" style={{ flex: 1 }}>
+                    <label>{resultModal.challenger?.nombre}</label>
+                    <input type="number" min="0" value={resultModal.tiebreak_a} onChange={e => setResultModal(m => ({ ...m, tiebreak_a: e.target.value }))} />
+                  </div>
+                  <div className="form-row" style={{ flex: 1 }}>
+                    <label>{resultModal.challenged?.nombre}</label>
+                    <input type="number" min="0" value={resultModal.tiebreak_b} onChange={e => setResultModal(m => ({ ...m, tiebreak_b: e.target.value }))} />
+                  </div>
+                </div>
+              </div>
+            )}
+            <div className="modal-actions">
+              <button className="btn" onClick={() => setResultModal(null)}>Cancelar</button>
+              <button className="btn btn-accept" onClick={saveResult}>Guardar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* WO */}
+      {woModal && (
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setWoModal(null) }}>
+          <div className="modal">
+            <h3>Declarar W.O.</h3>
+            <p style={{ fontSize: 13, color: '#555', marginBottom: 12 }}>{woModal.challenger?.nombre} vs {woModal.challenged?.nombre}</p>
+            <div className="notif notif-warn" style={{ marginBottom: 12 }}>
+              <i className="ti ti-alert-triangle" aria-hidden="true" /> El perdedor del W.O. pierde 9-0 y baja en el ranking si aplica.
+            </div>
+            <div className="form-row"><label>¿Quién pierde por W.O.?</label>
+              <select value={woModal.wo_loser} onChange={e => setWoModal(m => ({ ...m, wo_loser: e.target.value }))}>
+                <option value="challenger">{woModal.challenger?.nombre} {woModal.challenger?.apellido} (desafiante)</option>
+                <option value="challenged">{woModal.challenged?.nombre} {woModal.challenged?.apellido} (desafiado)</option>
+              </select>
+            </div>
+            <div className="modal-actions">
+              <button className="btn" onClick={() => setWoModal(null)}>Cancelar</button>
+              <button className="btn btn-reject" onClick={declareWO}>Confirmar W.O.</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cancelar partido */}
+      {cancelModal && (
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setCancelModal(null) }}>
+          <div className="modal">
+            <h3>Cancelar partido</h3>
+            <p style={{ fontSize: 13, color: '#555', marginBottom: 12 }}>Ambos jugadores quedan libres para nuevos desafíos. No afecta el ranking.</p>
+            <div className="modal-actions">
+              <button className="btn" onClick={() => setCancelModal(null)}>Volver</button>
+              <button className="btn btn-warn" onClick={cancelMatch}>Confirmar cancelación</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Editar resultado */}
+      {editResultModal && (
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setEditResultModal(null) }}>
+          <div className="modal">
+            <h3>Editar resultado</h3>
+            <p style={{ fontSize: 13, color: '#555', marginBottom: 12 }}>{editResultModal.challenger?.nombre} vs {editResultModal.challenged?.nombre}</p>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <div className="form-row" style={{ flex: 1 }}>
+                <label>{editResultModal.challenger?.nombre}</label>
+                <input type="number" min="0" max="9" value={editResultModal.score_a} onChange={e => setEditResultModal(m => ({ ...m, score_a: e.target.value }))} />
+              </div>
+              <div className="form-row" style={{ flex: 1 }}>
+                <label>{editResultModal.challenged?.nombre}</label>
+                <input type="number" min="0" max="9" value={editResultModal.score_b} onChange={e => setEditResultModal(m => ({ ...m, score_b: e.target.value }))} />
+              </div>
+            </div>
+            {String(editResultModal.score_a) === '8' && String(editResultModal.score_b) === '8' && (
+              <div style={{ background: '#FAEEDA', borderRadius: 8, padding: '8px 10px', marginBottom: 10 }}>
+                <div style={{ fontSize: 12, fontWeight: 500, color: '#633806', marginBottom: 8 }}>Tiebreak 8-8</div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <div className="form-row" style={{ flex: 1 }}>
+                    <label>{editResultModal.challenger?.nombre}</label>
+                    <input type="number" min="0" value={editResultModal.tiebreak_a} onChange={e => setEditResultModal(m => ({ ...m, tiebreak_a: e.target.value }))} />
+                  </div>
+                  <div className="form-row" style={{ flex: 1 }}>
+                    <label>{editResultModal.challenged?.nombre}</label>
+                    <input type="number" min="0" value={editResultModal.tiebreak_b} onChange={e => setEditResultModal(m => ({ ...m, tiebreak_b: e.target.value }))} />
+                  </div>
+                </div>
+              </div>
+            )}
+            <div className="form-row"><label>Ganador</label>
+              <select value={editResultModal.ganador} onChange={e => setEditResultModal(m => ({ ...m, ganador: e.target.value }))}>
+                <option value="challenger">{editResultModal.challenger?.nombre} {editResultModal.challenger?.apellido}</option>
+                <option value="challenged">{editResultModal.challenged?.nombre} {editResultModal.challenged?.apellido}</option>
+              </select>
+            </div>
+            <div className="modal-actions">
+              <button className="btn" onClick={() => setEditResultModal(null)}>Cancelar</button>
+              <button className="btn btn-accept" onClick={saveEditResult}>Guardar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Asignar cancha */}
       {slotModal && (
         <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setSlotModal(null) }}>
           <div className="modal">
@@ -389,6 +649,9 @@ export default function Admin() {
                 {courts.map(c => <option key={c.id} value={c.id}>{c.nombre} ({c.surface})</option>)}
               </select>
             </div>
+            <div className="form-row"><label>Día</label>
+              <input type="date" value={slotModal.day} onChange={e => setSlotModal(s => ({ ...s, day: e.target.value }))} />
+            </div>
             <div className="form-row"><label>Hora</label>
               <select value={slotModal.hour} onChange={e => setSlotModal(s => ({ ...s, hour: e.target.value }))}>
                 {HOURS.map(h => <option key={h} value={h}>{h}</option>)}
@@ -396,7 +659,7 @@ export default function Admin() {
             </div>
             <div className="form-row" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <input type="checkbox" id="paid-check" checked={slotModal.paid} onChange={e => setSlotModal(s => ({ ...s, paid: e.target.checked }))} style={{ width: 16, height: 16 }} />
-              <label htmlFor="paid-check" style={{ fontSize: 13, color: '#333', marginBottom: 0 }}>Pago ya confirmado</label>
+              <label htmlFor="paid-check" style={{ fontSize: 13, color: '#333', marginBottom: 0 }}>Pago confirmado</label>
             </div>
             <div className="modal-actions">
               <button className="btn" onClick={() => setSlotModal(null)}>Cancelar</button>
@@ -406,126 +669,25 @@ export default function Admin() {
         </div>
       )}
 
-      {/* Modal editar resultado */}
-      {editResultModal && (
-        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setEditResultModal(null) }}>
-          <div className="modal">
-            <h3>Editar resultado</h3>
-            <p style={{ fontSize: 13, color: '#555', marginBottom: 12 }}>{editResultModal.challenger?.nombre} vs {editResultModal.challenged?.nombre}</p>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-              <div className="form-row" style={{ flex: 1 }}>
-                <label>{editResultModal.challenger?.nombre}</label>
-                <input type="number" min="0" max="9" value={editResultModal.score_a} onChange={e => setEditResultModal(m => ({ ...m, score_a: e.target.value }))} />
-              </div>
-              <div className="form-row" style={{ flex: 1 }}>
-                <label>{editResultModal.challenged?.nombre}</label>
-                <input type="number" min="0" max="9" value={editResultModal.score_b} onChange={e => setEditResultModal(m => ({ ...m, score_b: e.target.value }))} />
-              </div>
-            </div>
-            <div className="form-row"><label>Ganador</label>
-              <select value={editResultModal.ganador} onChange={e => setEditResultModal(m => ({ ...m, ganador: e.target.value }))}>
-                <option value="challenger">{editResultModal.challenger?.nombre} {editResultModal.challenger?.apellido}</option>
-                <option value="challenged">{editResultModal.challenged?.nombre} {editResultModal.challenged?.apellido}</option>
-              </select>
-            </div>
-            {String(editResultModal.score_a) === '8' && String(editResultModal.score_b) === '8' && (
-              <div style={{ background: '#FAEEDA', borderRadius: 8, padding: '8px 10px', marginBottom: 10 }}>
-                <div style={{ fontSize: 12, fontWeight: 500, color: '#633806', marginBottom: 8 }}>Tiebreak 8-8</div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <div className="form-row" style={{ flex: 1 }}>
-                    <label>{editResultModal.challenger?.nombre}</label>
-                    <input type="number" min="0" value={editResultModal.tiebreak_a || ''} onChange={e => setEditResultModal(m => ({ ...m, tiebreak_a: e.target.value }))} />
-                  </div>
-                  <div className="form-row" style={{ flex: 1 }}>
-                    <label>{editResultModal.challenged?.nombre}</label>
-                    <input type="number" min="0" value={editResultModal.tiebreak_b || ''} onChange={e => setEditResultModal(m => ({ ...m, tiebreak_b: e.target.value }))} />
-                  </div>
-                </div>
-              </div>
-            )}
-            <div className="modal-actions">
-              <button className="btn" onClick={() => setEditResultModal(null)}>Cancelar</button>
-              <button className="btn btn-accept" onClick={saveEditResult}>Guardar</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal editar jugador */}
-      {editPlayerModal && (
-        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setEditPlayerModal(null) }}>
-          <div className="modal">
-            <h3>Editar jugador</h3>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              <div className="form-row"><label>Nombre</label><input value={editPlayerModal.nombre || ''} onChange={e => setEditPlayerModal(m => ({ ...m, nombre: e.target.value }))} /></div>
-              <div className="form-row"><label>Apellido</label><input value={editPlayerModal.apellido || ''} onChange={e => setEditPlayerModal(m => ({ ...m, apellido: e.target.value }))} /></div>
-            </div>
-            <div className="form-row"><label>Email</label><input type="email" value={editPlayerModal.email || ''} onChange={e => setEditPlayerModal(m => ({ ...m, email: e.target.value }))} /></div>
-            <div className="form-row"><label>Teléfono</label><input value={editPlayerModal.telefono || ''} onChange={e => setEditPlayerModal(m => ({ ...m, telefono: e.target.value }))} /></div>
-            <div className="form-row"><label>Posición</label><input type="number" value={editPlayerModal.posicion || ''} onChange={e => setEditPlayerModal(m => ({ ...m, posicion: e.target.value }))} /></div>
-            <div className="form-row" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <input type="checkbox" id="admin-check" checked={editPlayerModal.es_admin || false} onChange={e => setEditPlayerModal(m => ({ ...m, es_admin: e.target.checked }))} style={{ width: 16, height: 16 }} />
-              <label htmlFor="admin-check" style={{ fontSize: 13, color: '#333', marginBottom: 0 }}>Es administrador</label>
-            </div>
-            <div className="modal-actions">
-              <button className="btn" onClick={() => setEditPlayerModal(null)}>Cancelar</button>
-              <button className="btn btn-accept" onClick={saveEditPlayer}>Guardar</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal lesión */}
-      {injureModal && (
-        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setInjureModal(null) }}>
-          <div className="modal">
-            <h3>Marcar lesionado</h3>
-            <p style={{ fontSize: 13, color: '#555', marginBottom: 12 }}>{injureModal.nombre} {injureModal.apellido}</p>
-            <div className="form-row"><label>Descripción (opcional)</label><input type="text" value={injNote} onChange={e => setInjNote(e.target.value)} placeholder="ej: Esguince tobillo..." /></div>
-            <div className="modal-actions">
-              <button className="btn" onClick={() => setInjureModal(null)}>Cancelar</button>
-              <button className="btn btn-reject" onClick={() => markInjured(injureModal)}>Confirmar</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal activar */}
-      {activateModal && (
-        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setActivateModal(null) }}>
-          <div className="modal">
-            <h3>Activar jugador</h3>
-            <p style={{ fontSize: 13, color: '#555', marginBottom: 12 }}>{activateModal.nombre} {activateModal.apellido}</p>
-            <div className="form-row"><label>Posición inicial</label><input type="number" id="act-pos" min="1" max="100" placeholder="ej: 12" /></div>
-            <div className="modal-actions">
-              <button className="btn" onClick={() => setActivateModal(null)}>Cancelar</button>
-              <button className="btn btn-accept" onClick={() => activatePlayer(activateModal, document.getElementById('act-pos').value)}>Activar</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal editar partido */}
+      {/* Editar cancha/hora */}
       {editSlotModal && (
         <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setEditSlotModal(null) }}>
           <div className="modal">
             <h3>Editar partido</h3>
-            {editSlotModal.paid && (
-              <div className="notif notif-ok" style={{ marginBottom: 10 }}>
-                <i className="ti ti-check" aria-hidden="true" /> Pago confirmado — se mantendrá al editar
-              </div>
-            )}
+            {editSlotModal.paid && <div className="notif notif-ok" style={{ marginBottom: 10 }}><i className="ti ti-check" aria-hidden="true" /> Pago confirmado — se mantendrá</div>}
+            <div style={{ background: '#f5f4f0', borderRadius: 8, padding: '8px 10px', fontSize: 12, color: '#888', marginBottom: 10 }}>
+              Día actual: <strong>{editSlotModal.currentDay}</strong>
+            </div>
             <div className="form-row"><label>Cancha</label>
               <select value={editSlotModal.court || ''} onChange={e => setEditSlotModal(m => ({ ...m, court: e.target.value }))}>
-                <option value="">Sin cancha</option>
                 {courts.map(c => <option key={c.id} value={c.id}>{c.nombre} ({c.surface})</option>)}
               </select>
             </div>
-            <div className="form-row"><label>Nuevo día (dejar vacío para no cambiar)</label>
+            <div className="form-row"><label>Nuevo día (dejar vacío para mantener)</label>
               <input type="date" value={editSlotModal.day || ''} onChange={e => setEditSlotModal(m => ({ ...m, day: e.target.value }))} />
             </div>
             <div className="form-row"><label>Hora</label>
-              <select value={editSlotModal.hour || HOURS[6]} onChange={e => setEditSlotModal(m => ({ ...m, hour: e.target.value }))}>
+              <select value={editSlotModal.hour} onChange={e => setEditSlotModal(m => ({ ...m, hour: e.target.value }))}>
                 {HOURS.map(h => <option key={h} value={h}>{h}</option>)}
               </select>
             </div>
@@ -541,11 +703,14 @@ export default function Admin() {
         </div>
       )}
 
-      {/* Modal nuevo desafío */}
+      {/* Nuevo desafío */}
       {newChallengeModal && (
         <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setNewChallengeModal(null) }}>
           <div className="modal">
             <h3>Crear desafío</h3>
+            <div style={{ background: '#f5f4f0', borderRadius: 8, padding: '8px 10px', fontSize: 12, color: '#888', marginBottom: 10 }}>
+              Fecha límite: <strong>{fmtDate(getNextWednesday())}</strong>
+            </div>
             <div className="form-row"><label>Desafiante</label>
               <select value={newChallengeModal.challenger_id} onChange={e => setNewChallengeModal(m => ({ ...m, challenger_id: e.target.value }))}>
                 <option value="">Seleccionar...</option>
@@ -558,10 +723,6 @@ export default function Admin() {
                 {players.filter(p => p.activo).map(p => <option key={p.id} value={p.id}>{p.posicion}. {p.nombre} {p.apellido}</option>)}
               </select>
             </div>
-            <div style={{ background: '#f5f4f0', borderRadius: 8, padding: '8px 10px', fontSize: 12, color: '#888', marginBottom: 10 }}>
-              <i className="ti ti-calendar" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />
-              Fecha límite: <strong>{formatDateLabel(getNextWednesday())}</strong> (próximo miércoles)
-            </div>
             <div className="form-row"><label>Cancha (opcional)</label>
               <select value={newChallengeModal.court} onChange={e => setNewChallengeModal(m => ({ ...m, court: e.target.value }))}>
                 <option value="">Sin asignar</option>
@@ -569,7 +730,7 @@ export default function Admin() {
               </select>
             </div>
             {newChallengeModal.court && <>
-              <div className="form-row"><label>Día del partido</label>
+              <div className="form-row"><label>Día</label>
                 <input type="date" value={newChallengeModal.day} onChange={e => setNewChallengeModal(m => ({ ...m, day: e.target.value }))} />
               </div>
               <div className="form-row"><label>Hora</label>
@@ -590,13 +751,13 @@ export default function Admin() {
         </div>
       )}
 
-      {/* Modal historial */}
+      {/* Historial */}
       {historialModal && (
         <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setHistorialModal(null) }}>
           <div className="modal">
             <h3>Agregar partido histórico</h3>
             <p style={{ fontSize: 12, color: '#888', marginBottom: 12 }}>Solo informativo — no mueve el ranking</p>
-            <div className="form-row"><label>Jugador A (desafiante)</label>
+            <div className="form-row"><label>Jugador A</label>
               <select value={historialModal.challenger_id} onChange={e => setHistorialModal(m => ({ ...m, challenger_id: e.target.value }))}>
                 <option value="">Seleccionar...</option>
                 {players.map(p => <option key={p.id} value={p.id}>{p.nombre} {p.apellido}</option>)}
@@ -626,15 +787,60 @@ export default function Admin() {
           </div>
         </div>
       )}
-    </div>
-  )
-}
 
-function Section({ title, children }) {
-  return (
-    <div style={{ marginBottom: 16 }}>
-      <div style={{ fontSize: 12, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>{title}</div>
-      {children}
+      {/* Lesión */}
+      {injureModal && (
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setInjureModal(null) }}>
+          <div className="modal">
+            <h3>Marcar lesionado</h3>
+            <p style={{ fontSize: 13, color: '#555', marginBottom: 12 }}>{injureModal.nombre} {injureModal.apellido}</p>
+            <div className="form-row"><label>Descripción (opcional)</label><input type="text" value={injNote} onChange={e => setInjNote(e.target.value)} placeholder="ej: Esguince tobillo..." /></div>
+            <div className="modal-actions">
+              <button className="btn" onClick={() => setInjureModal(null)}>Cancelar</button>
+              <button className="btn btn-reject" onClick={() => markInjured(injureModal)}>Confirmar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Activar jugador */}
+      {activateModal && (
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setActivateModal(null) }}>
+          <div className="modal">
+            <h3>Activar jugador</h3>
+            <p style={{ fontSize: 13, color: '#555', marginBottom: 12 }}>{activateModal.nombre} {activateModal.apellido}</p>
+            <div className="form-row"><label>Posición inicial</label><input type="number" id="act-pos" min="1" max="100" placeholder="ej: 12" /></div>
+            <div className="modal-actions">
+              <button className="btn" onClick={() => setActivateModal(null)}>Cancelar</button>
+              <button className="btn btn-accept" onClick={() => activatePlayer(activateModal, document.getElementById('act-pos').value)}>Activar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Editar jugador */}
+      {editPlayerModal && (
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setEditPlayerModal(null) }}>
+          <div className="modal">
+            <h3>Editar jugador</h3>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <div className="form-row"><label>Nombre</label><input value={editPlayerModal.nombre || ''} onChange={e => setEditPlayerModal(m => ({ ...m, nombre: e.target.value }))} /></div>
+              <div className="form-row"><label>Apellido</label><input value={editPlayerModal.apellido || ''} onChange={e => setEditPlayerModal(m => ({ ...m, apellido: e.target.value }))} /></div>
+            </div>
+            <div className="form-row"><label>Email</label><input type="email" value={editPlayerModal.email || ''} onChange={e => setEditPlayerModal(m => ({ ...m, email: e.target.value }))} /></div>
+            <div className="form-row"><label>Teléfono</label><input value={editPlayerModal.telefono || ''} onChange={e => setEditPlayerModal(m => ({ ...m, telefono: e.target.value }))} /></div>
+            <div className="form-row"><label>Posición</label><input type="number" value={editPlayerModal.posicion || ''} onChange={e => setEditPlayerModal(m => ({ ...m, posicion: e.target.value }))} /></div>
+            <div className="form-row" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input type="checkbox" id="admin-check" checked={editPlayerModal.es_admin || false} onChange={e => setEditPlayerModal(m => ({ ...m, es_admin: e.target.checked }))} style={{ width: 16, height: 16 }} />
+              <label htmlFor="admin-check" style={{ fontSize: 13, color: '#333', marginBottom: 0 }}>Es administrador</label>
+            </div>
+            <div className="modal-actions">
+              <button className="btn" onClick={() => setEditPlayerModal(null)}>Cancelar</button>
+              <button className="btn btn-accept" onClick={saveEditPlayer}>Guardar</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
