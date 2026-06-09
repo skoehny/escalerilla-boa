@@ -3,15 +3,17 @@ import ReactDOM from 'react-dom/client'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import './index.css'
 
-import Auth    from './pages/Auth'
-import Ranking from './pages/Ranking'
-import Desafios from './pages/Desafios'
-import Canchas  from './pages/Canchas'
-import Resultados from './pages/Resultados'
-import Admin   from './pages/Admin'
-import Layout  from './components/Layout'
-import { useSession } from './components/SessionContext'
-import { SessionProvider } from './components/SessionContext'
+import Auth        from './pages/Auth'
+import Ranking     from './pages/Ranking'
+import Desafios    from './pages/Desafios'
+import Canchas     from './pages/Canchas'
+import Resultados  from './pages/Resultados'
+import Admin       from './pages/Admin'
+import Perfil      from './pages/Perfil'
+import JugadorPerfil from './pages/JugadorPerfil'
+import Reglamento  from './pages/Reglamento'
+import Layout      from './components/Layout'
+import { SessionProvider, useSession } from './components/SessionContext'
 
 function ProtectedRoute({ children }) {
   const { player } = useSession()
@@ -32,10 +34,13 @@ function AppRoutes() {
       <Route path="/auth" element={player ? <Navigate to="/" replace /> : <Auth />} />
       <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
         <Route index element={<Ranking />} />
-        <Route path="desafios" element={<Desafios />} />
-        <Route path="canchas" element={<Canchas />} />
+        <Route path="desafios"   element={<Desafios />} />
+        <Route path="canchas"    element={<Canchas />} />
         <Route path="resultados" element={<Resultados />} />
-        <Route path="admin" element={<AdminRoute><Admin /></AdminRoute>} />
+        <Route path="perfil"     element={<Perfil />} />
+        <Route path="jugador/:id" element={<JugadorPerfil />} />
+        <Route path="reglamento" element={<Reglamento />} />
+        <Route path="admin"      element={<AdminRoute><Admin /></AdminRoute>} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

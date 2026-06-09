@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
-import { getPlayers, createChallenge } from '../lib/supabase'
+import { useNavigate } from 'react-router-dom'
+import { getPlayers, createChallenge, getChallenges } from '../lib/supabase'
 import { notifyChallengeSent } from '../lib/notify'
 import { useSession } from '../components/SessionContext'
 
@@ -13,25 +14,24 @@ function trend(pos, prev) {
 
 export default function Ranking() {
   const { player } = useSession()
+  const navigate = useNavigate()
   const [players, setPlayers] = useState([])
   const [loading, setLoading] = useState(true)
   const [notif, setNotif] = useState(null)
-
-  const deadline = (() => {
-    const d = new Date()
-    while (d.getDay() !== 3) d.setDate(d.getDate() + 1)
-    return d.toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' })
-  })()
+  const [hasActive, setHasActive] = useState(false)
 
   useEffect(() => { load() }, [])
 
   async function load() {
     try {
-      const data = await getPlayers()
-      setPlayers(data)
-    } finally {
-      setLoading(false)
-    }
+      const [pl, ch] = await Promise.all([getPlayers(), getChallenges()])
+      setPlayers(pl)
+      const active = ch.some(c =>
+        (c.challenger_id === player?.id || c.challenged_id === player?.id) &&
+        (c.status === 'pending' || c.status === 'accepted')
+      )
+      setHasActive(active)
+    } finally { setLoading(false) }
   }
 
   function notify(msg, type = 'ok') {
@@ -39,39 +39,26 @@ export default function Ranking() {
     setTimeout(() => setNotif(null), 4000)
   }
 
-  const hasActive = players.length > 0 // simplificado — en prod consultar challenges
-
   async function handleChallenge(target) {
     try {
-      const ch = await createChallenge({
-        challenger_id: player.id,
-        challenged_id: target.id,
-        deadline: deadline,
-      })
+      const d = new Date()
+      while (d.getDay() !== 3) d.setDate(d.getDate() + 1)
+      const deadline = d.toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' })
+      await createChallenge({ challenger_id: player.id, challenged_id: target.id, deadline })
       await notifyChallengeSent(player, target)
-      notify(`Desafío enviado a ${target.nombre} ${target.apellido}. Tiene 48 h para responder.`)
+      notify(`Desafío enviado a ${target.nombre} ${target.apellido}.`)
       load()
-    } catch (err) {
-      notify(err.message, 'err')
-    }
+    } catch (err) { notify(err.message, 'err') }
   }
 
   if (loading) return <p style={{ color: '#888', fontSize: 13, textAlign: 'center', padding: 24 }}>Cargando ranking...</p>
 
   return (
     <div>
-      {notif && (
-        <div className={`notif notif-${notif.type}`}>
-          <i className={`ti ti-${notif.type === 'ok' ? 'check' : 'alert-triangle'}`} aria-hidden="true" />
-          {notif.msg}
-        </div>
-      )}
+      {notif && <div className={`notif notif-${notif.type}`}><i className={`ti ti-${notif.type === 'ok' ? 'check' : 'alert-triangle'}`} aria-hidden="true" /> {notif.msg}</div>}
 
       <div className="week-banner">
-        <span>
-          <i className="ti ti-calendar" style={{ fontSize: 13, verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />
-          Semana activa · cierre {deadline} · actualización jueves
-        </span>
+        <span><i className="ti ti-calendar" style={{ fontSize: 13, verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Semana activa · cierre mié · actualización jueves</span>
         <span className="badge badge-teal">1 partido disponible</span>
       </div>
 
@@ -84,8 +71,7 @@ export default function Ranking() {
 
       {player?.lesionado && (
         <div className="notif notif-err" style={{ marginBottom: 10 }}>
-          <i className="ti ti-first-aid-kit" aria-hidden="true" />
-          Estás marcado como lesionado{player.lesion_nota ? ` — ${player.lesion_nota}` : ''}. No puedes recibir desafíos.
+          <i className="ti ti-first-aid-kit" aria-hidden="true" /> Estás marcado como lesionado{player.lesion_nota ? ` — ${player.lesion_nota}` : ''}. No puedes recibir desafíos.
         </div>
       )}
 
@@ -98,27 +84,16 @@ export default function Ranking() {
         {players.map(p => {
           const isMe = p.id === player?.id
           const numColor = p.posicion === 1 ? '#BA7517' : p.posicion === 2 ? '#888780' : p.posicion === 3 ? '#D85A30' : '#888'
-          const canChallenge = !isMe
-            && p.posicion < player?.posicion
-            && p.posicion >= player?.posicion - 3
-            && !p.lesionado
-            && !player?.lesionado
+          const canChallenge = !isMe && p.posicion < player?.posicion && p.posicion >= player?.posicion - 3 && !p.lesionado && !player?.lesionado && !hasActive
 
           return (
-            <div key={p.id} className="row-item" style={isMe ? {
-              background: '#f5f4f0', borderRadius: 8, padding: '8px', margin: '0 -6px',
-            } : {}}>
-              <span style={{ width: 24, textAlign: 'center', fontSize: 13, fontWeight: 500, color: numColor, flexShrink: 0 }}>
-                {p.posicion}
-              </span>
-              <div className="avatar" style={{
-                width: 26, height: 26, fontSize: 10,
-                background: p.lesionado ? '#FCEBEB' : '#E1F5EE',
-                color: p.lesionado ? '#A32D2D' : '#0F6E56',
-              }}>
+            <div key={p.id} className="row-item" style={isMe ? { background: '#f5f4f0', borderRadius: 8, padding: '8px', margin: '0 -6px' } : {}}>
+              <span style={{ width: 24, textAlign: 'center', fontSize: 13, fontWeight: 500, color: numColor, flexShrink: 0 }}>{p.posicion}</span>
+              <div className="avatar" style={{ width: 26, height: 26, fontSize: 10, background: p.lesionado ? '#FCEBEB' : '#E1F5EE', color: p.lesionado ? '#A32D2D' : '#0F6E56', cursor: 'pointer' }}
+                onClick={() => navigate(`/jugador/${p.id}`)}>
                 {ini(p.nombre, p.apellido)}
               </div>
-              <span style={{ flex: 1, fontSize: 13 }}>
+              <span style={{ flex: 1, fontSize: 13, cursor: 'pointer' }} onClick={() => navigate(`/jugador/${p.id}`)}>
                 {p.nombre} {p.apellido}
                 {isMe && <span style={{ fontSize: 11, color: '#1D9E75', marginLeft: 4 }}>(tú)</span>}
                 {p.lesionado && <span className="badge badge-red" style={{ fontSize: 10, marginLeft: 4 }}>lesionado</span>}
@@ -126,8 +101,7 @@ export default function Ranking() {
               <span style={{ fontSize: 12, color: '#888' }}>{p.victorias}V {p.derrotas}D</span>
               <span style={{ width: 24, textAlign: 'center' }}>{trend(p.posicion, p.posicion_anterior)}</span>
               {canChallenge && (
-                <button className="btn btn-accept" style={{ padding: '3px 10px', fontSize: 12 }}
-                  onClick={() => handleChallenge(p)}>
+                <button className="btn btn-accept" style={{ padding: '3px 10px', fontSize: 12 }} onClick={() => handleChallenge(p)}>
                   Desafiar
                 </button>
               )}
@@ -135,6 +109,7 @@ export default function Ranking() {
           )
         })}
       </div>
+      {hasActive && <p style={{ fontSize: 12, color: '#888', textAlign: 'center' }}>Ya tienes un desafío activo esta semana</p>}
     </div>
   )
 }
