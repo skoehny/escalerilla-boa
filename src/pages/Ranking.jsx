@@ -58,14 +58,18 @@ export default function Ranking() {
     setTimeout(() => setNotif(null), 4000)
   }
 
-  async function handleChallenge(target) {
+  async function handleChallenge(target, isWildcard = false) {
     try {
       const d = new Date()
       while (d.getDay() !== 3) d.setDate(d.getDate() + 1)
-      const deadline = d.toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' })
-      await createChallenge({ challenger_id: player.id, challenged_id: target.id, deadline })
+      const deadline = d.toISOString().split('T')[0]
+      await createChallenge({ challenger_id: player.id, challenged_id: target.id, deadline, is_wildcard: isWildcard })
+      if (isWildcard) {
+        await supabase.from('players').update({ wildcard_usada: true }).eq('id', player.id)
+        updateSession({ ...player, wildcard_usada: true })
+      }
       await notifyChallengeSent(player, target)
-      notify(`Desafío enviado a ${target.nombre} ${target.apellido}.`)
+      notify(`${isWildcard ? '⭐ Wild Card usada — ' : ''}Desafío enviado a ${target.nombre} ${target.apellido}.`)
       load()
     } catch (err) { notify(err.message, 'err') }
   }
@@ -128,6 +132,17 @@ export default function Ranking() {
               {canChallenge && (
                 <button className="btn btn-accept" style={{ padding: '3px 10px', fontSize: 12 }} onClick={() => handleChallenge(p)}>
                   Desafiar
+                </button>
+              )}
+              {!canChallenge && !isMe && !hasActive && !player?.lesionado && !p.lesionado && !targetHasActive
+                && !player?.wildcard_usada && p.posicion < player?.posicion && (
+                <button className="btn" style={{ padding: '3px 10px', fontSize: 12, borderColor: '#BA7517', color: '#633806', background: '#FAEEDA' }}
+                  onClick={() => {
+                    if (window.confirm(`¿Usar tu Wild Card para desafiar a ${p.nombre} ${p.apellido} (#${p.posicion})? Solo tienes 1 por año.`)) {
+                      handleChallenge(p, true)
+                    }
+                  }}>
+                  ⭐ WC
                 </button>
               )}
             </div>
