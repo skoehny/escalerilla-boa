@@ -110,13 +110,19 @@ export default function Ranking() {
         {players.map(p => {
           const isMe = p.id === player?.id
           const numColor = p.posicion === 1 ? '#BA7517' : p.posicion === 2 ? '#888780' : p.posicion === 3 ? '#D85A30' : '#888'
-          // Check if target player has active challenge or played this week
           const targetHasActive = challenges.some(c =>
             (c.challenger_id === p.id || c.challenged_id === p.id) &&
             (c.status === 'pending' || c.status === 'accepted' ||
              (c.status === 'completed' && c.ranking_applied === false))
           )
-          const canChallenge = !isMe && p.posicion < player?.posicion && p.posicion >= player?.posicion - 3 && !p.lesionado && !player?.lesionado && !hasActive && !targetHasActive && !playedThisWeek
+          // Calcular rango dinámico: 3 rivales disponibles (no lesionados) por encima
+          const myPos = player?.posicion || 999
+          const availableAbove = players
+            .filter(x => x.posicion < myPos && !x.lesionado)
+            .sort((a, b) => b.posicion - a.posicion) // más cercanos primero
+            .slice(0, 3) // los 3 más cercanos disponibles
+          const inRange = availableAbove.some(x => x.id === p.id)
+          const canChallenge = !isMe && inRange && !p.lesionado && !player?.lesionado && !hasActive && !targetHasActive && !playedThisWeek
 
           return (
             <div key={p.id} className="row-item" style={isMe ? { background: '#f5f4f0', borderRadius: 8, padding: '8px', margin: '0 -6px' } : {}}>
@@ -138,8 +144,8 @@ export default function Ranking() {
                 </button>
               )}
               {!canChallenge && !isMe && !hasActive && !player?.lesionado && !p.lesionado && !targetHasActive
-                && !player?.wildcard_usada && p.posicion < player?.posicion
-                && !playedThisWeek && (
+                && !player?.wildcard_usada && p.posicion < (player?.posicion || 999)
+                && !inRange && !playedThisWeek && (
                 <button className="btn btn-warn" style={{ padding: '3px 10px', fontSize: 12 }}
                   onClick={() => {
                     if (window.confirm(`¿Usar tu Wild Card para desafiar a ${p.nombre} ${p.apellido} (#${p.posicion})? Solo tienes 1 por año.`)) {
