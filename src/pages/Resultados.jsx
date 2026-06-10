@@ -65,29 +65,67 @@ export default function Resultados() {
     return hasMatchStarted(c)
   }
 
+  function isMyMatch(c) {
+    return c.challenger_id === player?.id || c.challenged_id === player?.id
+  }
+
   function canEdit(c) {
     if (c.status !== 'completed') return false
-    if (!(c.challenger_id === player?.id || c.challenged_id === player?.id)) return false
-    return !c.ranking_applied
+    if (!isMyMatch(c)) return false
+    if (c.resultado_validado) return false
+    // Solo el rival (no quien anotó) puede editar
+    return c.anotado_por !== player?.id
+  }
+
+  function canValidate(c) {
+    if (c.status !== 'completed') return false
+    if (!isMyMatch(c)) return false
+    if (c.resultado_validado) return false
+    if (c.validado_por === player?.id) return false // ya validó
+    return true
+  }
+
+  async function validateResult(c) {
+    try {
+      const alreadyValidated = c.validado_por !== null
+      await import('../lib/supabase').then(m => m.updateChallenge(c.id, {
+        validado_por: player.id,
+        resultado_validado: alreadyValidated ? true : false // definitivo si el otro ya validó
+      }))
+      // Si el anotador valida o el rival valida → definitivo
+      await import('../lib/supabase').then(async m => {
+        const { data } = await supabase.from('challenges').select('validado_por, anotado_por').eq('id', c.id).single()
+        if (data?.validado_por) {
+          await m.updateChallenge(c.id, { resultado_validado: true })
+        }
+      })
+      ntf('Resultado validado.')
+      load()
+    } catch (err) { ntf(err.message, 'err') }
   }
 
   async function saveEdit(c) {
-    const sa = parseInt(editScores[c.id + '_a'] ?? c.score_a)
-    const sb = parseInt(editScores[c.id + '_b'] ?? c.score_b)
-    if (isNaN(sa) || isNaN(sb) || sa === sb) { ntf('Resultado inválido.', 'err'); return }
+    const sa = parseInt(editScores[c.id + "_a"] ?? c.score_a)
+    const sb = parseInt(editScores[c.id + "_b"] ?? c.score_b)
+    if (isNaN(sa) || isNaN(sb) || sa === sb) { ntf("Resultado inválido.", "err"); return }
     const isTB = (sa === 9 && sb === 8) || (sa === 8 && sb === 9)
     let tbA = null, tbB = null
     if (isTB) {
-      tbA = parseInt(editTiebreaks[c.id + '_a'] ?? c.tiebreak_a)
-      tbB = parseInt(editTiebreaks[c.id + '_b'] ?? c.tiebreak_b)
-      if (isNaN(tbA) || isNaN(tbB) || Math.abs(tbA - tbB) < 2) { ntf('Tiebreak inválido.', 'err'); return }
+      tbA = parseInt(editTiebreaks[c.id + "_a"] ?? c.tiebreak_a)
+      tbB = parseInt(editTiebreaks[c.id + "_b"] ?? c.tiebreak_b)
+      if (isNaN(tbA) || isNaN(tbB) || Math.abs(tbA - tbB) < 2) { ntf("Tiebreak inválido.", "err"); return }
     }
     try {
-      await updateChallenge(c.id, { score_a: sa, score_b: sb, ganador: sa > sb ? 'challenger' : 'challenged', tiebreak_a: isTB ? tbA : null, tiebreak_b: isTB ? tbB : null })
+      await updateChallenge(c.id, {
+        score_a: sa, score_b: sb, ganador: sa > sb ? "challenger" : "challenged",
+        tiebreak_a: isTB ? tbA : null, tiebreak_b: isTB ? tbB : null,
+        anotado_por: player.id, // quien editó ahora es el anotador
+        validado_por: null, resultado_validado: false
+      })
       setEditingId(null)
-      ntf('Resultado corregido.')
+      ntf("Resultado editado. El rival puede validarlo o editarlo.")
       load()
-    } catch (err) { ntf(err.message, 'err') }
+    } catch (err) { ntf(err.message, "err") }
   }
 
   async function saveResult(c) {
@@ -117,6 +155,7 @@ export default function Resultados() {
       // Guardar resultado — NO mover ranking, espera al jueves
       await updateChallenge(c.id, {
         status: 'completed', score_a: sa, score_b: sb, ganador: winner,
+        anotado_por: player.id, validado_por: null, resultado_validado: false,
         ...(isTB ? { tiebreak_a: tbA, tiebreak_b: tbB } : {})
       })
       // Solo actualizar victorias/derrotas
@@ -225,11 +264,18 @@ export default function Resultados() {
                       </span>
                       <span style={{ fontWeight: c.ganador === 'challenged' ? 500 : 400 }}>{c.challenged?.nombre}</span>
                     </span>
+                    {c.resultado_validado && <span className="badge badge-green" style={{ fontSize: 10, flexShrink: 0 }}>✓</span>}
                     <span className="badge badge-green" style={{ flexShrink: 0 }}>{w?.nombre}</span>
                     {c.slot_court && <span style={{ marginLeft: 4 }}>{courtDot(c.slot_court)}</span>}
                     <span style={{ fontSize: 11, color: '#888', marginLeft: 4, flexShrink: 0 }}>{fmtDate(c.created_at)}</span>
+                    {canValidate(c) && !isEditing && (
+                      <button className="btn btn-accept" style={{ fontSize: 11, padding: '2px 8px', marginLeft: 4 }}
+                        onClick={() => validateResult(c)}>
+                        Validar
+                      </button>
+                    )}
                     {canEdit(c) && !isEditing && (
-                      <button className="btn" style={{ fontSize: 11, padding: '2px 8px', marginLeft: 4 }}
+                      <button className="btn" style={{ fontSize: 11, padding: '2px 8px', marginLeft: 2 }}
                         onClick={() => { setEditingId(c.id); setEditScores({ [c.id + '_a']: c.score_a, [c.id + '_b']: c.score_b }); setEditTiebreaks({ [c.id + '_a']: c.tiebreak_a || '', [c.id + '_b']: c.tiebreak_b || '' }) }}>
                         Editar
                       </button>
