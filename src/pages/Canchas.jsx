@@ -26,6 +26,7 @@ function getDays() {
 
 export default function Canchas() {
   const { player } = useSession()
+  const isAdminCanchas = player?.es_admin_canchas || player?.es_admin
   const [courts, setCourts] = useState([])
   const [slots, setSlots] = useState([])
   const [days] = useState(getDays)
@@ -35,6 +36,9 @@ export default function Canchas() {
   const [notif, setNotif] = useState(null)
   const [modal, setModal] = useState(null)
   const [editModal, setEditModal] = useState(null)
+  const [blockModal, setBlockModal] = useState(null)
+  const [assignModal, setAssignModal] = useState(null)
+  const [allChallenges, setAllChallenges] = useState([])
 
   useEffect(() => {
     setSelectedDay(days[0]?.label)
@@ -46,6 +50,13 @@ export default function Canchas() {
 
   async function loadCourts() { const data = await getCourts(); setCourts(data) }
   async function loadSlots(day) { setLoading(true); try { const data = await getSlots(day); setSlots(data) } finally { setLoading(false) } }
+  useEffect(() => { if (isAdminCanchas) loadAllChallenges() }, [])
+
+  async function loadAllChallenges() {
+    const data = await getChallenges()
+    setAllChallenges(data.filter(c => c.status === 'accepted' && !c.slot_day))
+  }
+
   async function loadMyChallenge() {
     const data = await getChallenges()
     const active = data.find(c => (c.challenger_id === player?.id || c.challenged_id === player?.id) && c.status === 'accepted' && !c.slot_day)
@@ -53,6 +64,66 @@ export default function Canchas() {
   }
 
   function ntf(msg, type = 'ok') { setNotif({ msg, type }); setTimeout(() => setNotif(null), 4000) }
+
+  async function blockSlot() {
+    if (!blockModal) return
+    const { supabase } = await import('../lib/supabase')
+    try {
+      await supabase.from('slots').upsert({
+        court_id: blockModal.courtId, dia: selectedDay, hora: blockModal.hour,
+        reserved_by: player.id, status: 'reserved', challenge_id: null
+      })
+      setBlockModal(null)
+      ntf('Horario bloqueado (30 min).')
+      loadSlots(selectedDay)
+    } catch (err) { ntf(err.message, 'err') }
+  }
+
+  async function unblockSlot(slot) {
+    const { supabase } = await import('../lib/supabase')
+    try {
+      await supabase.from('slots').delete().eq('id', slot.id)
+      ntf('Horario liberado.')
+      loadSlots(selectedDay)
+    } catch (err) { ntf(err.message, 'err') }
+  }
+
+  async function assignToChallengeSlot() {
+    if (!assignModal) return
+    try {
+      const { supabase } = await import('../lib/supabase')
+      const { importChallenge } = assignModal
+      const day = selectedDay
+      const hour = assignModal.hour
+      const courtId = assignModal.courtId
+
+      // Block 3 slots (1.5 hours = 3 x 30min)
+      const addMins = (h, mins) => {
+        const [hh, mm] = h.split(':').map(Number)
+        const total = hh * 60 + mm + mins
+        return `${String(Math.floor(total/60)).padStart(2,'0')}:${String(total%60).padStart(2,'0')}`
+      }
+      await supabase.from('slots').upsert({ court_id: courtId, dia: day, hora: hour, reserved_by: player.id, status: 'reserved', challenge_id: importChallenge.id })
+      await supabase.from('slots').upsert({ court_id: courtId, dia: day, hora: addMins(hour, 30), reserved_by: player.id, status: 'reserved', challenge_id: importChallenge.id })
+      await supabase.from('slots').upsert({ court_id: courtId, dia: day, hora: addMins(hour, 60), reserved_by: player.id, status: 'reserved', challenge_id: importChallenge.id })
+
+      await updateChallenge(importChallenge.id, { slot_court: courtId, slot_day: day, slot_hour: hour })
+      setAssignModal(null)
+      ntf(`Cancha asignada a ${importChallenge.challenger?.nombre} vs ${importChallenge.challenged?.nombre}`)
+      loadSlots(selectedDay)
+      loadAllChallenges()
+    } catch (err) { ntf(err.message, 'err') }
+  }
+
+  async function confirmPayment(slot) {
+    try {
+      const { supabase } = await import('../lib/supabase')
+      await supabase.from('slots').update({ status: 'confirmed' }).eq('id', slot.id)
+      if (slot.challenge_id) await updateChallenge(slot.challenge_id, { pago_confirmado: true })
+      ntf('Pago confirmado.')
+      loadSlots(selectedDay)
+    } catch (err) { ntf(err.message, 'err') }
+  }
 
   async function handleReserve() {
     if (!modal) return
@@ -150,8 +221,16 @@ export default function Canchas() {
                 <span style={{ flex: 1, fontSize: 12, color: statusColor }}>{statusLabel}</span>
                 {isMySlot && <span className="badge badge-teal">tuya</span>}
                 {isMySlot && <button className="btn" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => setEditModal({ slot: { ...slot, confirmedPay: slot.status === 'confirmed' }, newCourt: court.id, newDay: selectedDay, newHour: hour, courts })}>Editar</button>}
-                {isFree && canReserve && <button className="btn btn-accept" style={{ fontSize: 12, padding: '3px 10px' }} onClick={() => setModal({ courtId: court.id, courtName: court.nombre, surface: court.surface, day: selectedDay, hour })}>Reservar</button>}
-                {!isFree && !isMySlot && <span className={`badge ${slot?.status === 'confirmed' ? 'badge-green' : 'badge-amber'}`}>{slot?.status === 'confirmed' ? 'confirmada' : 'ocupada'}</span>}
+                {isFree && canReserve && !isAdminCanchas && <button className="btn btn-accept" style={{ fontSize: 12, padding: '3px 10px' }} onClick={() => setModal({ courtId: court.id, courtName: court.nombre, surface: court.surface, day: selectedDay, hour })}>Reservar</button>}
+                {isFree && isAdminCanchas && (
+                  <>
+                    <button className="btn" style={{ fontSize: 11, padding: '2px 8px', borderColor: '#A32D2D', color: '#A32D2D' }} onClick={() => setBlockModal({ courtId: court.id, hour })}>Bloquear</button>
+                    {allChallenges.length > 0 && <button className="btn btn-accept" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => setAssignModal({ courtId: court.id, hour, importChallenge: allChallenges[0] })}>Asignar</button>}
+                  </>
+                )}
+                {!isFree && !isMySlot && isAdminCanchas && slot?.status !== 'confirmed' && <button className="btn btn-accept" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => confirmPayment(slot)}>✓ Pago</button>}
+                {!isFree && isAdminCanchas && <button className="btn" style={{ fontSize: 11, padding: '2px 8px', borderColor: '#A32D2D', color: '#A32D2D' }} onClick={() => unblockSlot(slot)}>Liberar</button>}
+                {!isFree && !isMySlot && !isAdminCanchas && <span className={`badge ${slot?.status === 'confirmed' ? 'badge-green' : 'badge-amber'}`}>{slot?.status === 'confirmed' ? 'confirmada' : 'ocupada'}</span>}
               </div>
             )
           })}
@@ -174,6 +253,39 @@ export default function Canchas() {
             <div className="modal-actions">
               <button className="btn" onClick={() => setModal(null)}>Cancelar</button>
               <button className="btn btn-accept" onClick={handleReserve}>Confirmar reserva</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal bloquear horario */}
+      {blockModal && (
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setBlockModal(null) }}>
+          <div className="modal">
+            <h3>Bloquear horario</h3>
+            <p style={{ fontSize: 13, color: '#555', marginBottom: 12 }}>Se bloqueará el slot de {blockModal.hour} (30 min) en esta cancha.</p>
+            <div className="modal-actions">
+              <button className="btn" onClick={() => setBlockModal(null)}>Cancelar</button>
+              <button className="btn btn-reject" onClick={blockSlot}>Bloquear</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal asignar desafío */}
+      {assignModal && (
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setAssignModal(null) }}>
+          <div className="modal">
+            <h3>Asignar cancha a desafío</h3>
+            <div className="form-row"><label>Desafío</label>
+              <select value={assignModal.importChallenge?.id} onChange={e => setAssignModal(m => ({ ...m, importChallenge: allChallenges.find(c => c.id === e.target.value) }))}>
+                {allChallenges.map(c => <option key={c.id} value={c.id}>{c.challenger?.nombre} vs {c.challenged?.nombre}</option>)}
+              </select>
+            </div>
+            <p style={{ fontSize: 12, color: '#888', marginTop: 8 }}>Se asignará {assignModal.hour} y bloquea 1.5 horas en esta cancha.</p>
+            <div className="modal-actions">
+              <button className="btn" onClick={() => setAssignModal(null)}>Cancelar</button>
+              <button className="btn btn-accept" onClick={assignToChallengeSlot}>Asignar</button>
             </div>
           </div>
         </div>
