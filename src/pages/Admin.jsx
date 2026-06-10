@@ -58,6 +58,8 @@ export default function Admin() {
   const [historialModal, setHistorialModal] = useState(null)
   const [newChallengeModal, setNewChallengeModal] = useState(null)
   const [newPlayerModal, setNewPlayerModal] = useState(null)
+  const [confirmPublish, setConfirmPublish] = useState(false)
+  const [publishPin, setPublishPin] = useState('')
   const [pinModal, setPinModal] = useState(null) // { action: fn }
   const [pinInput, setPinInput] = useState('')
   const { player: sessionPlayer } = useSession()
@@ -448,11 +450,7 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
     ntf('Recordatorio enviado.')
   }
 
-  async function resetWeek() {
-    await Promise.all(players.filter(p => p.activo).map(p => updatePlayer(p.id, { rechazos_mes: 0 })))
-    ntf('Semana reseteada.')
-    load()
-  }
+
 
   const acceptedChallenges = challenges.filter(c => c.status === 'accepted')
   const completedChallenges = challenges.filter(c => c.status === 'completed')
@@ -515,7 +513,7 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
           }}>
             <i className="ti ti-brand-whatsapp" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Resumen WA
           </button>
-            <button className="btn" onClick={resetWeek}><i className="ti ti-refresh" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Resetear semana</button>
+
             <button className="btn btn-accept" onClick={() => setNewChallengeModal({ challenger_id: '', challenged_id: '', court: '', day: '', hour: '18:00', paid: false })}>
               <i className="ti ti-plus" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Nuevo desafío
             </button>
