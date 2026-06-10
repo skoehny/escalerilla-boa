@@ -73,6 +73,7 @@ export default function Resultados() {
     if (c.status !== 'completed') return false
     if (!isMyMatch(c)) return false
     if (c.resultado_validado) return false
+    if (c.ranking_applied) return false // historial bloqueado
     // Solo el rival (no quien anotó) puede editar
     return c.anotado_por !== player?.id
   }
@@ -81,6 +82,7 @@ export default function Resultados() {
     if (c.status !== 'completed') return false
     if (!isMyMatch(c)) return false
     if (c.resultado_validado) return false
+    if (c.ranking_applied) return false // historial bloqueado
     if (c.validado_por === player?.id) return false // ya validó
     return true
   }
