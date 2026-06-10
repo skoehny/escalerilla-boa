@@ -96,9 +96,18 @@ export default function Canchas() {
       const day = selectedDay
       const hour = assignModal.hour
       const courtId = assignModal.courtId
+      const addMins = (h, mins) => {
+        const [hh, mm] = h.split(':').map(Number)
+        const total = hh * 60 + mm + mins
+        return `${String(Math.floor(total/60)).padStart(2,'0')}:${String(total%60).padStart(2,'0')}`
+      }
+      // Check 3 slots are free
+      const slot2 = addMins(hour, 30), slot3 = addMins(hour, 60)
+      const busy = slots.filter(s => s.court_id === courtId && [hour, slot2, slot3].includes(s.hora))
+      if (busy.length > 0) { ntf('No hay 3 slots consecutivos disponibles en ese horario.', 'err'); return }
 
       // Block 3 slots (1.5 hours = 3 x 30min)
-      const addMins = (h, mins) => {
+      const addMins2 = (h, mins) => {
         const [hh, mm] = h.split(':').map(Number)
         const total = hh * 60 + mm + mins
         return `${String(Math.floor(total/60)).padStart(2,'0')}:${String(total%60).padStart(2,'0')}`
@@ -211,7 +220,7 @@ export default function Canchas() {
             const slot = getSlot(court.id, hour)
             const isFree = !slot || slot.status === 'free'
             const isMySlot = slot?.reserved_by === player?.id
-            const statusLabel = isFree ? 'Disponible · $8.000 pp' : slot?.status === 'confirmed' ? 'Confirmada' : slot?.status === 'pending_pay' ? 'Pago pendiente' : 'Reservada'
+            const statusLabel = isFree ? 'Disponible' : slot?.status === 'confirmed' ? 'Confirmada' : slot?.status === 'pending_pay' ? 'Pago pendiente' : 'Reservada'
             const statusColor = isFree ? '#888' : slot?.status === 'confirmed' ? '#3B6D11' : '#633806'
 
             return (
@@ -242,7 +251,7 @@ export default function Canchas() {
         <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setModal(null) }}>
           <div className="modal">
             <h3>Reservar {modal.courtName}</h3>
-            <p style={{ fontSize: 13, color: '#555', marginBottom: 12 }}>{modal.day} · {modal.hour} · {modal.surface} · $8.000 pp</p>
+            <p style={{ fontSize: 13, color: '#555', marginBottom: 12 }}>{modal.day} · {modal.hour} · {modal.surface} · $16.000 total (1.5 hrs)</p>
             {myChallenge && (
               <div style={{ background: '#f5f4f0', borderRadius: 8, padding: '8px 10px', fontSize: 12, marginBottom: 12 }}>
                 <i className="ti ti-link" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />

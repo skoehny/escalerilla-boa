@@ -9,15 +9,18 @@ export default function Layout() {
 
   function handleLogout() { logout(); navigate('/auth') }
 
-  const navItems = [
-    { to: '/',           label: 'Ranking',    icon: 'ti-trophy'    },
-    { to: '/desafios',   label: 'Desafíos',   icon: 'ti-sword'     },
-    { to: '/resultados', label: 'Resultados', icon: 'ti-chart-bar' },
-    { to: '/reglamento', label: 'Bases',      icon: 'ti-book'      },
-  ]
-  // Admin canchas solo ve canchas
-  if (player?.es_admin_canchas) navItems.splice(1, 0, { to: '/canchas', label: 'Canchas', icon: 'ti-tennis' })
-  // Admin full ve canchas también
+  // Admin canchas solo ve Canchas y Desafíos
+  const navItems = player?.es_admin_canchas
+    ? [
+        { to: '/canchas',    label: 'Canchas',    icon: 'ti-tennis'    },
+        { to: '/desafios',   label: 'Desafíos',   icon: 'ti-sword'     },
+      ]
+    : [
+        { to: '/',           label: 'Ranking',    icon: 'ti-trophy'    },
+        { to: '/desafios',   label: 'Desafíos',   icon: 'ti-sword'     },
+        { to: '/resultados', label: 'Resultados', icon: 'ti-chart-bar' },
+        { to: '/reglamento', label: 'Bases',      icon: 'ti-book'      },
+      ]
   if (player?.es_admin) {
     navItems.splice(2, 0, { to: '/canchas', label: 'Canchas', icon: 'ti-tennis' })
     navItems.push({ to: '/admin', label: 'Admin', icon: 'ti-settings' })
