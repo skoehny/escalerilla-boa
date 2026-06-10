@@ -315,7 +315,13 @@ export default function Admin() {
       updates.tiebreak_a = null; updates.tiebreak_b = null
     }
     if (m.slot_court) updates.slot_court = m.slot_court
-    updates.slot_day = m.slot_day_edit || m.slot_day || null
+    // Mantener fecha original si no se cambió
+    const finalDate = m.slot_day_edit || m.slot_day || null
+    updates.slot_day = finalDate
+    // Actualizar created_at si se cambió la fecha
+    if (m.slot_day_edit) {
+      updates.created_at = new Date(m.slot_day_edit + 'T12:00:00').toISOString()
+    }
     await updateChallenge(m.id, updates)
     setEditResultModal(null)
     ntf('Resultado editado.')
