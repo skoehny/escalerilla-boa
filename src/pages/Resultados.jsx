@@ -140,6 +140,10 @@ export default function Resultados() {
     if (isNaN(sa) || isNaN(sb)) { ntf('Ingresa los games de ambos.', 'err'); return }
     if (sa < 0 || sb < 0 || sa > 9 || sb > 9) { ntf('Games entre 0 y 9.', 'err'); return }
     if (sa === sb) { ntf('No puede terminar empatado.', 'err'); return }
+    if (!c.slot_court) { ntf('El partido debe tener cancha asignada.', 'err'); return }
+    if (!c.slot_day) { ntf('El partido debe tener fecha asignada.', 'err'); return }
+    if (!c.slot_hour) { ntf('El partido debe tener hora asignada.', 'err'); return }
+    if (!c.pago_confirmado) { ntf('El pago debe estar confirmado antes de anotar el resultado.', 'err'); return }
 
     // Tiebreak si 9-8 o 8-9
     const isTB = (sa === 9 && sb === 8) || (sa === 8 && sb === 9)
