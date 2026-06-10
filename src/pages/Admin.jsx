@@ -957,6 +957,22 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
         </div>
       )}
 
+      {/* Agregar jugador */}
+      {newPlayerModal && (
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setNewPlayerModal(null) }}>
+          <div className="modal">
+            <h3>Agregar jugador</h3>
+            <div className="form-row"><label>Nombre</label><input type="text" value={newPlayerModal.nombre} onChange={e => setNewPlayerModal(m => ({ ...m, nombre: e.target.value }))} /></div>
+            <div className="form-row"><label>Apellido</label><input type="text" value={newPlayerModal.apellido} onChange={e => setNewPlayerModal(m => ({ ...m, apellido: e.target.value }))} /></div>
+            <div className="form-row"><label>Teléfono</label><input type="text" value={newPlayerModal.telefono} onChange={e => setNewPlayerModal(m => ({ ...m, telefono: e.target.value }))} /></div>
+            <div className="modal-actions">
+              <button className="btn" onClick={() => setNewPlayerModal(null)}>Cancelar</button>
+              <button className="btn btn-accept" onClick={createPlayer}>Agregar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Historial */}
       {historialModal && (
         <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setHistorialModal(null) }}>
