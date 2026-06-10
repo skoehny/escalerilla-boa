@@ -102,6 +102,31 @@ export default function Perfil() {
         </button>
       </div>
 
+      {/* Lesión */}
+      <div className="card" style={{ marginBottom: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 500 }}>Estado de lesión</div>
+            <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>
+              {player?.lesionado
+                ? `Lesionado${player.lesion_nota ? ` — ${player.lesion_nota}` : ''} · No puedes recibir desafíos`
+                : 'Sin lesión · Disponible para jugar'}
+            </div>
+          </div>
+          {player?.lesionado
+            ? <button className="btn btn-accept" style={{ fontSize: 12 }} onClick={async () => {
+                const { data, error } = await supabase.from('players').update({ lesionado: false, lesion_nota: '' }).eq('id', player.id).select().single()
+                if (!error) { updateSession(data); ntf('Diste de alta. Ya puedes recibir desafíos.') }
+              }}>Dar de alta</button>
+            : <button className="btn btn-reject" style={{ fontSize: 12 }} onClick={async () => {
+                const nota = window.prompt('Descripción de la lesión (opcional):') || ''
+                const { data, error } = await supabase.from('players').update({ lesionado: true, lesion_nota: nota }).eq('id', player.id).select().single()
+                if (!error) { updateSession(data); ntf('Marcado como lesionado. No recibirás desafíos.', 'warn') }
+              }}>Marcar lesión</button>
+          }
+        </div>
+      </div>
+
       {/* Editar perfil */}
       {editing && (
         <div className="card" style={{ marginBottom: 10 }}>
