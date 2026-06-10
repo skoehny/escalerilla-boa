@@ -106,7 +106,7 @@ export default function Admin() {
 
     // Snapshot y historial
     const refreshed = players.filter(p => p.activo).sort((a, b) => a.posicion - b.posicion)
-    await supabase.from('ranking_snapshots').insert({ data: refreshed.map(p => ({ player_id: p.id, posicion: p.posicion, posicion_anterior: p.posicion_anterior })) })
+    await supabase.from('ranking_snapshots').insert({ data: refreshed.map(p => ({ player_id: p.id, posicion: p.posicion, posicion_anterior: p.posicion_anterior })), applied_challenge_ids: pending.map(c => c.id) })
     const { data: cfg } = await supabase.from('weekly_config').select('semana').eq('id', 1).single()
     await supabase.from('ranking_history').insert({
       semana: cfg?.semana || 0,
@@ -121,10 +121,22 @@ export default function Admin() {
 
   async function undoRanking() {
     if (!snapshots[0]) { ntf('No hay snapshot para deshacer.', 'warn'); return }
-    const snap = snapshots[0].data
-    await Promise.all(snap.map(s => updatePlayer(s.player_id, { posicion: s.posicion, posicion_anterior: s.posicion_anterior })))
-    await supabase.from('ranking_snapshots').delete().eq('id', snapshots[0].id)
-    ntf('Ranking restaurado. Resultados intactos.', 'warn')
+    if (!confirm('¿Revertir el último ranking publicado? Se restaurarán las posiciones y los partidos volverán a estar pendientes.')) return
+    const snap = snapshots[0]
+    // posicion_anterior en el snapshot = posicion antes de publicar
+    await Promise.all(snap.data.map(s => updatePlayer(s.player_id, { posicion: s.posicion_anterior, posicion_anterior: s.posicion_anterior })))
+    // re-abrir los challenges que se marcaron como aplicados en esta publicación
+    const ids = snap.applied_challenge_ids
+    if (ids && ids.length) {
+      await supabase.from('challenges').update({ ranking_applied: false }).in('id', ids)
+    } else {
+      await supabase.from('challenges').update({ ranking_applied: false }).eq('status', 'completed').eq('ranking_applied', true)
+    }
+    // borrar historial y snapshot
+    const { data: hist } = await supabase.from('ranking_history').select('id').order('id', { ascending: false }).limit(1)
+    if (hist?.length) await supabase.from('ranking_history').delete().eq('id', hist[0].id)
+    await supabase.from('ranking_snapshots').delete().eq('id', snap.id)
+    ntf('Ranking revertido. Posiciones y partidos restaurados.', 'warn')
     load()
   }
 
