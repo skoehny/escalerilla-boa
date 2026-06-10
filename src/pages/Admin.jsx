@@ -114,9 +114,6 @@ export default function Admin() {
     })
     await Promise.all(refreshed.map(p => updatePlayer(p.id, { posicion_anterior: p.posicion })))
     await notifyRankingUpdated(cfg?.semana || '—', refreshed.slice(0, 5))
-    const top5 = refreshed.slice(0, 5).map((p, i) => `${i+1}. ${p.nombre} ${p.apellido}`).join('\n')
-    const waRanking = `🎾 *Escalerilla BOA — Ranking Semana ${cfg?.semana || ''}*\n\n🏆 Top 5:\n${top5}\n\nVer ranking completo: https://escalerilla-boa.vercel.app`
-    window.open(`https://wa.me/?text=${encodeURIComponent(waRanking)}`, '_blank')
     ntf('Ranking publicado. Posiciones actualizadas.')
     load()
   }
