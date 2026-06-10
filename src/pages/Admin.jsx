@@ -1009,12 +1009,21 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
         <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setNewPlayerModal(null) }}>
           <div className="modal">
             <h3>Agregar jugador</h3>
-            <div className="form-row"><label>Nombre</label><input type="text" value={newPlayerModal.nombre} onChange={e => setNewPlayerModal(m => ({ ...m, nombre: e.target.value }))} /></div>
-            <div className="form-row"><label>Apellido</label><input type="text" value={newPlayerModal.apellido} onChange={e => setNewPlayerModal(m => ({ ...m, apellido: e.target.value }))} /></div>
-            <div className="form-row"><label>Teléfono</label><input type="text" value={newPlayerModal.telefono} onChange={e => setNewPlayerModal(m => ({ ...m, telefono: e.target.value }))} /></div>
+            <p style={{ fontSize: 12, color: '#888', marginBottom: 12 }}>Quedará activo en la última posición.</p>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <div className="form-row"><label>Nombre</label><input value={newPlayerModal.nombre} onChange={e => setNewPlayerModal(m => ({ ...m, nombre: e.target.value }))} placeholder="Juan" /></div>
+              <div className="form-row"><label>Apellido</label><input value={newPlayerModal.apellido} onChange={e => setNewPlayerModal(m => ({ ...m, apellido: e.target.value }))} placeholder="Pérez" /></div>
+            </div>
+            <div className="form-row">
+              <label>Teléfono</label>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <span style={{ display: 'flex', alignItems: 'center', padding: '0 10px', background: '#f5f4f0', border: '0.5px solid #ccc', borderRadius: 8, fontSize: 13, color: '#888', height: 36 }}>🇨🇱 +56</span>
+                <input value={newPlayerModal.telefono} onChange={e => setNewPlayerModal(m => ({ ...m, telefono: e.target.value.replace(/[^0-9]/g, '') }))} placeholder="912345678" style={{ flex: 1 }} inputMode="numeric" maxLength={9} />
+              </div>
+            </div>
             <div className="modal-actions">
               <button className="btn" onClick={() => setNewPlayerModal(null)}>Cancelar</button>
-              <button className="btn btn-accept" onClick={createPlayer}>Agregar</button>
+              <button className="btn btn-accept" onClick={() => createPlayer()}>Agregar y enviar invitación</button>
             </div>
           </div>
         </div>
