@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react'
-import { getChallenges, updateChallenge, getPlayers } from '../lib/supabase'
+import { getChallenges, updateChallenge, getPlayers, supabase } from '../lib/supabase'
 import { notifyResult } from '../lib/notify'
 import { useSession } from '../components/SessionContext'
-import { supabase } from '../lib/supabase'
 
 function fmtDate(d) {
   if (!d) return ''
@@ -44,6 +43,9 @@ export default function Resultados() {
   const [editingId, setEditingId] = useState(null)
   const [loading, setLoading] = useState(true)
   const [notif, setNotif] = useState(null)
+  const [activeTab, setActiveTab] = useState('partidos')
+  const [rankingHistory, setRankingHistory] = useState([])
+  const [selectedWeekIdx, setSelectedWeekIdx] = useState(0)
 
   useEffect(() => { load() }, [])
 
@@ -51,6 +53,8 @@ export default function Resultados() {
     try {
       const [ch, pl] = await Promise.all([getChallenges(), getPlayers()])
       setChallenges(ch); setPlayers(pl)
+      const { data: hist } = await supabase.from('ranking_history').select('*').order('semana', { ascending: false }).limit(20)
+      setRankingHistory(hist || [])
     } finally { setLoading(false) }
   }
 
@@ -185,7 +189,74 @@ export default function Resultados() {
     <div>
       {notif && <div className={`notif notif-${notif.type}`}><i className={`ti ti-${notif.type === 'ok' ? 'check' : 'alert-triangle'}`} aria-hidden="true" /> {notif.msg}</div>}
 
-      {toReport.length > 0 && (
+      {/* Tabs */}
+      <div style={{ display: 'flex', borderBottom: '0.5px solid #e0dfd8', marginBottom: 14 }}>
+        {[['partidos','Partidos'],['ranking','Ranking semanal']].map(([tab, label]) => (
+          <button key={tab} onClick={() => setActiveTab(tab)} style={{
+            flex: 1, padding: '8px 0', fontSize: 13, cursor: 'pointer', border: 'none',
+            background: 'transparent', color: activeTab === tab ? '#1D9E75' : '#888',
+            borderBottom: activeTab === tab ? '2px solid #1D9E75' : '2px solid transparent',
+            fontWeight: activeTab === tab ? 500 : 400,
+          }}>{label}</button>
+        ))}
+      </div>
+
+      {/* ── RANKING SEMANAL ── */}
+      {activeTab === 'ranking' && (
+        <div>
+          {rankingHistory.length === 0
+            ? <p style={{ fontSize: 13, color: '#888', textAlign: 'center', padding: 24 }}>Sin historial aún. Se genera cada jueves al publicar el ranking.</p>
+            : (() => {
+              const week = rankingHistory[selectedWeekIdx]
+              const prevWeek = rankingHistory[selectedWeekIdx + 1]
+              return (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                    <button className="btn" style={{ fontSize: 12, padding: '4px 10px' }}
+                      onClick={() => setSelectedWeekIdx(i => Math.min(i + 1, rankingHistory.length - 1))}
+                      disabled={selectedWeekIdx >= rankingHistory.length - 1}>← Anterior</button>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: 13, fontWeight: 500 }}>Semana {week.semana}</div>
+                      <div style={{ fontSize: 11, color: '#888' }}>{week.fecha}</div>
+                      {selectedWeekIdx === 0 && <span className="badge badge-green" style={{ fontSize: 10 }}>Última</span>}
+                    </div>
+                    <button className="btn" style={{ fontSize: 12, padding: '4px 10px' }}
+                      onClick={() => setSelectedWeekIdx(i => Math.max(i - 1, 0))}
+                      disabled={selectedWeekIdx === 0}>Siguiente →</button>
+                  </div>
+                  <div className="card">
+                    {(week.data || []).map((p) => {
+                      const prev = prevWeek?.data?.find(x => x.id === p.id)
+                      const diff = prev ? prev.posicion - p.posicion : 0
+                      return (
+                        <div key={p.id} className="row-item">
+                          <span style={{ width: 24, textAlign: 'center', fontSize: 13, fontWeight: 500, color: p.posicion <= 3 ? '#BA7517' : '#888' }}>{p.posicion}</span>
+                          <span style={{ flex: 1, fontSize: 13 }}>{p.nombre} {p.apellido}</span>
+                          <span style={{ fontSize: 12, color: '#888', marginRight: 8 }}>{p.victorias}V {p.derrotas}D</span>
+                          {diff > 0 && <span style={{ fontSize: 11, color: '#3B6D11' }}>↑{diff}</span>}
+                          {diff < 0 && <span style={{ fontSize: 11, color: '#A32D2D' }}>↓{Math.abs(diff)}</span>}
+                          {diff === 0 && prev && <span style={{ fontSize: 11, color: '#888' }}>—</span>}
+                        </div>
+                      )
+                    })}
+                  </div>
+                  {rankingHistory.length > 1 && (
+                    <div style={{ marginTop: 10, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {rankingHistory.map((w, i) => (
+                        <button key={w.id} className="btn" style={{ fontSize: 11, padding: '2px 8px', background: i === selectedWeekIdx ? '#1D9E75' : 'transparent', color: i === selectedWeekIdx ? '#fff' : '#555', borderColor: i === selectedWeekIdx ? '#1D9E75' : '#ddd' }}
+                          onClick={() => setSelectedWeekIdx(i)}>S{w.semana}</button>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )
+            })()
+          }
+        </div>
+      )}
+
+      {/* ── PARTIDOS ── */}
+      {activeTab === 'partidos' && toReport.length > 0 && (
         <div style={{ marginBottom: 14 }}>
           <div className="section-title">Anotar resultado</div>
           {toReport.map(c => {
@@ -238,15 +309,15 @@ export default function Resultados() {
         </div>
       )}
 
-      {toReport.length === 0 && (
+      {activeTab === 'partidos' && toReport.length === 0 && (
         <div className="notif" style={{ background: '#f5f4f0', border: '0.5px solid #e0dfd8', marginBottom: 14 }}>
           <i className="ti ti-info-circle" aria-hidden="true" />
-          No hay partidos listos para anotar. La cancha debe estar reservada y con pago confirmado.
+          No hay partidos listos para anotar. La cancha debe estar reservada, con pago confirmado y la hora debe haber llegado.
         </div>
       )}
 
-      <div className="section-title">Historial</div>
-      <div className="card">
+      {activeTab === 'partidos' && <div className="section-title">Historial</div>}
+      {activeTab === 'partidos' && <div className="card">
         {completed.length === 0
           ? <p style={{ fontSize: 13, color: '#888', textAlign: 'center', padding: '12px 0' }}>Sin partidos jugados aún</p>
           : (() => {
