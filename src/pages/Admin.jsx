@@ -315,7 +315,7 @@ export default function Admin() {
       updates.tiebreak_a = null; updates.tiebreak_b = null
     }
     if (m.slot_court) updates.slot_court = m.slot_court
-    if (m.slot_day_edit) updates.slot_day = m.slot_day_edit
+    updates.slot_day = m.slot_day_edit || m.slot_day || null
     await updateChallenge(m.id, updates)
     setEditResultModal(null)
     ntf('Resultado editado.')
