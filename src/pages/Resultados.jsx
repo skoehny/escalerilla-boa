@@ -165,6 +165,9 @@ export default function Resultados() {
       if (loserFull) await import('../lib/supabase').then(m => m.updatePlayer(loserFull.id, { derrotas: (loserFull.derrotas || 0) + 1 }))
 
       await notifyResult(c.challenger, c.challenged, sa, sb, winnerP, null)
+      const tbStr = isTB ? ` (${tbA}-${tbB})` : ''
+      const waText = `🎾 *Escalerilla BOA*\n\n✅ Resultado: ${c.challenger?.nombre} ${sa}-${sb}${tbStr} ${c.challenged?.nombre}\nGana: ${winnerP?.nombre}\n\nVer resultados: https://escalerilla-boa.vercel.app`
+      window.open(`https://wa.me/?text=${encodeURIComponent(waText)}`, '_blank')
       // Refrescar sesión del jugador actual
       const { data: freshPlayer } = await supabase.from('players').select('*').eq('id', player.id).single()
       if (freshPlayer) updateSession(freshPlayer)
