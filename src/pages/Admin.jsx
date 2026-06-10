@@ -452,7 +452,7 @@ export default function Admin() {
               msg += '\n'
             }
             msg += '📊 Ver ranking: https://escalerilla-boa.vercel.app'
-            window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank')
+            if (navigator.share) { navigator.share({ text: msg }) } else { navigator.clipboard.writeText(msg); ntf('Mensaje copiado.') }
           }}>
             <i className="ti ti-brand-whatsapp" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Resumen WA
           </button>

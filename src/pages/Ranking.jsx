@@ -72,8 +72,6 @@ export default function Ranking() {
         updateSession({ ...player, wildcard_usada: true })
       }
       await notifyChallengeSent(player, target)
-      const waText = `🎾 *Escalerilla BOA*\n\n⚔️ ${player.nombre} ${player.apellido} desafía a ${target.nombre} ${target.apellido}${isWildcard ? ' (Wild Card 🌟)' : ''}\n\nVer desafíos: https://escalerilla-boa.vercel.app`
-      window.open(`https://wa.me/?text=${encodeURIComponent(waText)}`, '_blank')
       notify(`${isWildcard ? '⭐ Wild Card usada — ' : ''}Desafío enviado a ${target.nombre} ${target.apellido}.`)
       load()
     } catch (err) { notify(err.message, 'err') }

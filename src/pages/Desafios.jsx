@@ -15,10 +15,6 @@ import { useSession } from '../components/SessionContext'
 const WA_GROUP = 'https://chat.whatsapp.com/ECl8ws6EkfLKzKuycVrcRo'
 const STEPS = ['Pendiente', 'Acordar día', 'Reservar cancha', 'Pago confirmado', 'Jugado']
 
-function waMsg(text) {
-  return `https://wa.me/?text=${encodeURIComponent(text)}`
-}
-
 function stepOf(c) {
   if (c.status === 'pending') return 0
   if (c.status === 'accepted' && !c.slot_day) return 1
@@ -106,7 +102,7 @@ export default function Desafios() {
                   </div>
                 </div>
                 <button className="btn btn-reject" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => reject(c)}>Rechazar</button>
-                <button className="btn btn-accept" style={{ fontSize: 12, padding: '4px 10px' }} onClick={async () => { await accept(c); window.open(waMsg(`🎾 *Escalerilla BOA*\n\n✅ ${c.challenged?.nombre} aceptó el desafío de ${c.challenger?.nombre}\n\nVer desafíos: https://escalerilla-boa.vercel.app`), '_blank') }}>Aceptar</button>
+                <button className="btn btn-accept" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => accept(c)}>Aceptar</button>
               </div>
             </div>
           ))}
