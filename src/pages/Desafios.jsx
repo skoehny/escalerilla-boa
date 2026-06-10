@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { getChallenges, updateChallenge, supabase } from '../lib/supabase'
+import { getChallenges, updateChallenge, getCourts, supabase } from '../lib/supabase'
 
 function fmtDate(d) {
   if (!d) return ''
@@ -11,6 +11,12 @@ function fmtDate(d) {
 }
 import { notifyChallengeAccepted, notifyChallengeRejected, notifyChallengeExpired } from '../lib/notify'
 import { useSession } from '../components/SessionContext'
+
+const HOURS = []
+for (let h = 7; h < 22; h++) {
+  HOURS.push(`${String(h).padStart(2,'0')}:00`)
+  HOURS.push(`${String(h).padStart(2,'0')}:30`)
+}
 
 const WA_GROUP = 'https://chat.whatsapp.com/ECl8ws6EkfLKzKuycVrcRo'
 const STEPS = ['Pendiente', 'Acordar día', 'Reservar cancha', 'Pago confirmado', 'Jugado']
@@ -27,16 +33,63 @@ function stepOf(c) {
 export default function Desafios() {
   const { player } = useSession()
   const [challenges, setChallenges] = useState([])
+  const [courts, setCourts] = useState([])
   const [loading, setLoading] = useState(true)
   const [notif, setNotif] = useState(null)
+  const [slotModal, setSlotModal] = useState(null)
+  const isAdminCanchas = player?.es_admin_canchas
 
   useEffect(() => { load() }, [])
 
   async function load() {
     try {
-      const data = await getChallenges()
+      const [data, co] = await Promise.all([getChallenges(), getCourts()])
       setChallenges(data)
+      setCourts(co)
     } finally { setLoading(false) }
+  }
+
+  async function assignSlot() {
+    const m = slotModal
+    if (!m.court || !m.day || !m.hour) { ntf('Completa cancha, día y hora.', 'err'); return }
+    try {
+      let slotDay = m.day
+      if (slotDay.includes('-') && slotDay.length === 10) {
+        const d = new Date(slotDay + 'T12:00:00')
+        slotDay = d.toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' })
+      }
+      await updateChallenge(m.id, { slot_court: m.court, slot_day: slotDay, slot_hour: m.hour })
+      // Block 3 slots in courts table
+      const addMins = (h, mins) => {
+        const [hh, mm] = h.split(':').map(Number)
+        const total = hh * 60 + mm + mins
+        return `${String(Math.floor(total/60)).padStart(2,'0')}:${String(total%60).padStart(2,'0')}`
+      }
+      for (const mins of [0, 30, 60]) {
+        await supabase.from('slots').upsert({ court_id: m.court, dia: slotDay, hora: addMins(m.hour, mins), reserved_by: player.id, status: 'reserved', challenge_id: m.id })
+      }
+      setSlotModal(null)
+      ntf('Cancha asignada.')
+      load()
+    } catch (err) { ntf(err.message, 'err') }
+  }
+
+  async function releaseSlot(c) {
+    try {
+      await supabase.from('slots').delete().eq('challenge_id', c.id)
+      await updateChallenge(c.id, { slot_court: null, slot_day: null, slot_hour: null, pago_confirmado: false })
+      ntf('Cancha liberada. El desafío sigue activo.', 'warn')
+      load()
+    } catch (err) { ntf(err.message, 'err') }
+  }
+
+  async function confirmPaymentCanchas(c) {
+    try {
+      await updateChallenge(c.id, { pago_confirmado: true })
+      await supabase.from('slots').update({ status: 'confirmed' }).eq('challenge_id', c.id)
+      ntf('Pago confirmado.')
+      load()
+    } catch (err) { ntf(err.message, 'err') }
   }
 
   function ntf(msg, type = 'ok') {
@@ -74,6 +127,64 @@ export default function Desafios() {
 
   if (loading) return <p style={{ color: '#888', fontSize: 13, padding: 24 }}>Cargando...</p>
 
+  // ── Vista Karla (admin canchas) ──────────────────────────
+  if (isAdminCanchas) return (
+    <div>
+      {notif && <div className={`notif notif-${notif.type}`}><i className={`ti ti-${notif.type === 'ok' ? 'check' : 'alert-triangle'}`} aria-hidden="true" /> {notif.msg}</div>}
+      <div className="section-title">Desafíos activos</div>
+      <div className="card">
+        {allActive.length === 0
+          ? <p style={{ fontSize: 13, color: '#888', textAlign: 'center', padding: '14px 0' }}>Sin desafíos activos</p>
+          : allActive.map(c => (
+            <div key={c.id} style={{ borderBottom: '0.5px solid #f0efe8', paddingBottom: 10, marginBottom: 10 }}>
+              <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>{c.challenger?.nombre} vs {c.challenged?.nombre}</div>
+              <div style={{ fontSize: 11, color: '#888', marginBottom: 8 }}>
+                {c.slot_day ? `${c.slot_court} · ${c.slot_day} · ${c.slot_hour} · ${c.pago_confirmado ? '✓ Pago ok' : 'Pago pendiente'}` : 'Sin cancha · vence ' + fmtDate(c.deadline)}
+              </div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {!c.slot_day
+                  ? <button className="btn btn-accept" style={{ fontSize: 12 }} onClick={() => setSlotModal({ id: c.id, court: courts[0]?.id, day: '', hour: '18:00' })}>Asignar cancha</button>
+                  : <button className="btn" style={{ fontSize: 12 }} onClick={() => setSlotModal({ id: c.id, court: c.slot_court, day: '', hour: c.slot_hour })}>Editar cancha</button>
+                }
+                {c.slot_day && !c.pago_confirmado && <button className="btn btn-accept" style={{ fontSize: 12 }} onClick={() => confirmPaymentCanchas(c)}>✓ Pago</button>}
+                {c.slot_day && <button className="btn btn-warn" style={{ fontSize: 12 }} onClick={() => releaseSlot(c)}>Liberar cancha</button>}
+                {c.pago_confirmado && <span className="badge badge-green">Listo</span>}
+              </div>
+            </div>
+          ))
+        }
+      </div>
+
+      {/* Modal asignar cancha */}
+      {slotModal && (
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setSlotModal(null) }}>
+          <div className="modal">
+            <h3>Asignar cancha</h3>
+            <div className="form-row"><label>Cancha</label>
+              <select value={slotModal.court} onChange={e => setSlotModal(m => ({ ...m, court: e.target.value }))}>
+                {courts.map(c => <option key={c.id} value={c.id}>{c.nombre} ({c.surface})</option>)}
+              </select>
+            </div>
+            <div className="form-row"><label>Día</label>
+              <input type="date" value={slotModal.day} onChange={e => setSlotModal(m => ({ ...m, day: e.target.value }))} />
+            </div>
+            <div className="form-row"><label>Hora inicio</label>
+              <select value={slotModal.hour} onChange={e => setSlotModal(m => ({ ...m, hour: e.target.value }))}>
+                {HOURS.map(h => <option key={h} value={h}>{h}</option>)}
+              </select>
+            </div>
+            <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>Se reservarán 3 bloques de 30 min (1.5 horas)</div>
+            <div className="modal-actions">
+              <button className="btn" onClick={() => setSlotModal(null)}>Cancelar</button>
+              <button className="btn btn-accept" onClick={assignSlot}>Asignar</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+
+  // ── Vista jugador normal ──────────────────────────────────
   return (
     <div>
       {notif && (
