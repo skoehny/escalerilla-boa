@@ -118,7 +118,7 @@ export default function Desafios() {
               <span style={{ color: '#888', fontSize: 12 }}>vs</span>
               <span style={{ fontSize: 13, fontWeight: 500 }}>{myActive.challenged?.nombre} {myActive.challenged?.apellido}</span>
               {myActive.deadline && (
-                <span style={{ marginLeft: 'auto', fontSize: 12, color: '#A32D2D' }}>vence {myActive.deadline}</span>
+                <span style={{ marginLeft: 'auto', fontSize: 12, color: '#A32D2D' }}>vence {fmtDate(myActive.deadline)}</span>
               )}
             </div>
 
@@ -189,7 +189,7 @@ export default function Desafios() {
                   {c.challenged?.nombre} {c.challenged?.apellido}
                 </span>
                 <span className={`badge ${bCls[step] || 'badge-gray'}`}>{labels[step] || ''}</span>
-                {c.deadline && <span style={{ fontSize: 11, color: '#888', marginLeft: 8 }}>{c.deadline}</span>}
+                {c.deadline && <span style={{ fontSize: 11, color: '#888', marginLeft: 8 }}>{fmtDate(c.deadline)}</span>}
               </div>
             )
           })

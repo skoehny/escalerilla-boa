@@ -11,6 +11,19 @@ function fmtDate(d) {
 }
 
 
+function hasMatchStarted(c) {
+  if (!c.slot_day || !c.slot_hour) return false
+  try {
+    const d = c.slot_day
+    if (d.length === 10 && d.includes('-')) {
+      const [year, month, day] = d.split('-')
+      const [hour, min] = c.slot_hour.split(':')
+      return new Date() >= new Date(year, month - 1, day, hour, min)
+    }
+    return true
+  } catch { return true }
+}
+
 function courtDot(courtId) {
   const isHard = courtId === 'c3'
   return <span style={{
@@ -26,6 +39,9 @@ export default function Resultados() {
   const [players, setPlayers] = useState([])
   const [scores, setScores] = useState({})
   const [tiebreaks, setTiebreaks] = useState({})
+  const [editScores, setEditScores] = useState({})
+  const [editTiebreaks, setEditTiebreaks] = useState({})
+  const [editingId, setEditingId] = useState(null)
   const [loading, setLoading] = useState(true)
   const [notif, setNotif] = useState(null)
 
@@ -45,7 +61,33 @@ export default function Resultados() {
   function canReport(c) {
     if (c.status !== 'accepted') return false
     if (!c.pago_confirmado) return false
-    return c.challenger_id === player?.id || c.challenged_id === player?.id
+    if (!(c.challenger_id === player?.id || c.challenged_id === player?.id)) return false
+    return hasMatchStarted(c)
+  }
+
+  function canEdit(c) {
+    if (c.status !== 'completed') return false
+    if (!(c.challenger_id === player?.id || c.challenged_id === player?.id)) return false
+    return !c.ranking_applied
+  }
+
+  async function saveEdit(c) {
+    const sa = parseInt(editScores[c.id + '_a'] ?? c.score_a)
+    const sb = parseInt(editScores[c.id + '_b'] ?? c.score_b)
+    if (isNaN(sa) || isNaN(sb) || sa === sb) { ntf('Resultado inválido.', 'err'); return }
+    const isTB = (sa === 9 && sb === 8) || (sa === 8 && sb === 9)
+    let tbA = null, tbB = null
+    if (isTB) {
+      tbA = parseInt(editTiebreaks[c.id + '_a'] ?? c.tiebreak_a)
+      tbB = parseInt(editTiebreaks[c.id + '_b'] ?? c.tiebreak_b)
+      if (isNaN(tbA) || isNaN(tbB) || Math.abs(tbA - tbB) < 2) { ntf('Tiebreak inválido.', 'err'); return }
+    }
+    try {
+      await updateChallenge(c.id, { score_a: sa, score_b: sb, ganador: sa > sb ? 'challenger' : 'challenged', tiebreak_a: isTB ? tbA : null, tiebreak_b: isTB ? tbB : null })
+      setEditingId(null)
+      ntf('Resultado corregido.')
+      load()
+    } catch (err) { ntf(err.message, 'err') }
   }
 
   async function saveResult(c) {
@@ -169,18 +211,54 @@ export default function Resultados() {
             const renderRow = (c) => {
               const w = c.ganador === 'challenger' ? c.challenger : c.challenged
               const hasTB = c.tiebreak_a != null && c.tiebreak_b != null
+              const isEditing = editingId === c.id
+              const esa = editScores[c.id + '_a'] ?? c.score_a
+              const esb = editScores[c.id + '_b'] ?? c.score_b
+              const editIsTB = (parseInt(esa) === 9 && parseInt(esb) === 8) || (parseInt(esa) === 8 && parseInt(esb) === 9)
               return (
-                <div key={c.id} className="row-item">
-                  <span style={{ flex: 1, fontSize: 13 }}>
-                    <span style={{ fontWeight: c.ganador === 'challenger' ? 500 : 400 }}>{c.challenger?.nombre}</span>
-                    <span style={{ color: '#888', fontSize: 12, margin: '0 5px' }}>
-                      {c.score_a}–{c.score_b}{hasTB ? ` (${c.tiebreak_a}–${c.tiebreak_b})` : ''}{c.is_wo ? ' (WO)' : ''}
+                <div key={c.id}>
+                  <div className="row-item">
+                    <span style={{ flex: 1, fontSize: 13 }}>
+                      <span style={{ fontWeight: c.ganador === 'challenger' ? 500 : 400 }}>{c.challenger?.nombre}</span>
+                      <span style={{ color: '#888', fontSize: 12, margin: '0 5px' }}>
+                        {c.score_a}–{c.score_b}{hasTB ? ` (${c.tiebreak_a}–${c.tiebreak_b})` : ''}{c.is_wo ? ' (WO)' : ''}
+                      </span>
+                      <span style={{ fontWeight: c.ganador === 'challenged' ? 500 : 400 }}>{c.challenged?.nombre}</span>
                     </span>
-                    <span style={{ fontWeight: c.ganador === 'challenged' ? 500 : 400 }}>{c.challenged?.nombre}</span>
-                  </span>
-                  <span className="badge badge-green" style={{ flexShrink: 0 }}>{w?.nombre}</span>
-                  <span style={{ fontSize: 11, color: '#888', marginLeft: 4, flexShrink: 0 }}>{fmtDate(c.created_at)}</span>
-                  {c.slot_court && <span style={{ marginLeft: 4, display: 'inline-flex', alignItems: 'center' }}>{courtDot(c.slot_court)}</span>}
+                    <span className="badge badge-green" style={{ flexShrink: 0 }}>{w?.nombre}</span>
+                    {c.slot_court && <span style={{ marginLeft: 4 }}>{courtDot(c.slot_court)}</span>}
+                    <span style={{ fontSize: 11, color: '#888', marginLeft: 4, flexShrink: 0 }}>{fmtDate(c.created_at)}</span>
+                    {canEdit(c) && !isEditing && (
+                      <button className="btn" style={{ fontSize: 11, padding: '2px 8px', marginLeft: 4 }}
+                        onClick={() => { setEditingId(c.id); setEditScores({ [c.id + '_a']: c.score_a, [c.id + '_b']: c.score_b }); setEditTiebreaks({ [c.id + '_a']: c.tiebreak_a || '', [c.id + '_b']: c.tiebreak_b || '' }) }}>
+                        Editar
+                      </button>
+                    )}
+                  </div>
+                  {isEditing && (
+                    <div style={{ background: '#f5f4f0', borderRadius: 8, padding: '10px 12px', marginBottom: 8 }}>
+                      <div style={{ fontSize: 12, color: '#888', marginBottom: 8 }}>Corregir resultado</div>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+                        <div style={{ flex: 1 }}><label style={{ fontSize: 11, color: '#888', display: 'block', marginBottom: 3 }}>{c.challenger?.nombre}</label><input type="number" min="0" max="9" value={esa} onChange={e => setEditScores(s => ({ ...s, [c.id + '_a']: e.target.value }))} /></div>
+                        <span style={{ fontSize: 16, color: '#888', paddingBottom: 8 }}>–</span>
+                        <div style={{ flex: 1 }}><label style={{ fontSize: 11, color: '#888', display: 'block', marginBottom: 3 }}>{c.challenged?.nombre}</label><input type="number" min="0" max="9" value={esb} onChange={e => setEditScores(s => ({ ...s, [c.id + '_b']: e.target.value }))} /></div>
+                      </div>
+                      {editIsTB && (
+                        <div style={{ marginTop: 8, padding: '8px 10px', background: '#FAEEDA', borderRadius: 8 }}>
+                          <div style={{ fontSize: 12, fontWeight: 500, color: '#633806', marginBottom: 6 }}>Tiebreak 9-8</div>
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            <div style={{ flex: 1 }}><label style={{ fontSize: 11, color: '#888', display: 'block', marginBottom: 3 }}>{c.challenger?.nombre}</label><input type="number" min="0" value={editTiebreaks[c.id + '_a'] || ''} onChange={e => setEditTiebreaks(t => ({ ...t, [c.id + '_a']: e.target.value }))} /></div>
+                            <span style={{ fontSize: 16, color: '#888', paddingBottom: 8 }}>–</span>
+                            <div style={{ flex: 1 }}><label style={{ fontSize: 11, color: '#888', display: 'block', marginBottom: 3 }}>{c.challenged?.nombre}</label><input type="number" min="0" value={editTiebreaks[c.id + '_b'] || ''} onChange={e => setEditTiebreaks(t => ({ ...t, [c.id + '_b']: e.target.value }))} /></div>
+                          </div>
+                        </div>
+                      )}
+                      <div style={{ display: 'flex', gap: 8, marginTop: 8, justifyContent: 'flex-end' }}>
+                        <button className="btn" style={{ fontSize: 12 }} onClick={() => setEditingId(null)}>Cancelar</button>
+                        <button className="btn btn-accept" style={{ fontSize: 12 }} onClick={() => saveEdit(c)}>Guardar</button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )
             }
