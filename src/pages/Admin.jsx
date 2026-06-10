@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { getAllPlayers, getChallenges, updatePlayer, updateChallenge, confirmSlotPayment, getCourts, reserveSlot, supabase } from '../lib/supabase'
+import { useSession } from '../components/SessionContext'
 import { notifyRankingUpdated, notifyReminder, notifyChallengeExpired, notifyPaymentConfirmed, notifyResult } from '../lib/notify'
 
 
@@ -57,6 +58,9 @@ export default function Admin() {
   const [historialModal, setHistorialModal] = useState(null)
   const [newChallengeModal, setNewChallengeModal] = useState(null)
   const [newPlayerModal, setNewPlayerModal] = useState(null)
+  const [pinModal, setPinModal] = useState(null) // { action: fn }
+  const [pinInput, setPinInput] = useState('')
+  const { player: sessionPlayer } = useSession()
   const [resultModal, setResultModal] = useState(null) // ingresar resultado desde admin
   const [woModal, setWoModal] = useState(null)
   const [cancelModal, setCancelModal] = useState(null)
@@ -79,6 +83,21 @@ export default function Admin() {
   function ntf(msg, type = 'ok') { setNotif({ msg, type }); setTimeout(() => setNotif(null), 4000) }
 
   // ── Ranking ──────────────────────────────────────────────
+  async function confirmWithPin(action) {
+    setPinInput('')
+    setPinModal({ action })
+  }
+
+  async function submitPin() {
+    if (!pinInput) return
+    const { data: ok } = await supabase.rpc('verify_pin', { pin: pinInput, hash: sessionPlayer?.pin_hash })
+    if (!ok) { ntf('PIN incorrecto.', 'err'); return }
+    const action = pinModal.action
+    setPinModal(null)
+    setPinInput('')
+    action()
+  }
+
   async function publishRanking() {
     const active = players.filter(p => p.activo).sort((a, b) => a.posicion - b.posicion)
 
@@ -464,7 +483,7 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
       {activeTab === 'acciones' && (
         <div>
           <div className="card" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', padding: '10px 12px' }}>
-            <button className="btn btn-accept" onClick={publishRanking}><i className="ti ti-trophy" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Publicar ranking</button>
+            <button className="btn btn-accept" onClick={() => confirmWithPin(publishRanking)}><i className="ti ti-trophy" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Publicar ranking</button>
             {snapshots.length > 0 && <button className="btn btn-warn" onClick={undoRanking}><i className="ti ti-arrow-back" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Deshacer ranking</button>}
             <button className="btn btn-warn" onClick={sendReminder}><i className="ti ti-bell" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Recordatorio</button>
           <button className="btn" style={{ borderColor: '#25D366', color: '#128C7E' }} onClick={() => {
@@ -964,6 +983,24 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
             <div className="modal-actions">
               <button className="btn" onClick={() => setNewChallengeModal(null)}>Cancelar</button>
               <button className="btn btn-accept" onClick={createChallengeAdmin}>Crear</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmar PIN */}
+      {pinModal && (
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) { setPinModal(null); setPinInput('') } }}>
+          <div className="modal">
+            <h3>Confirmar acción</h3>
+            <p style={{ fontSize: 13, color: '#888', marginBottom: 12 }}>Ingresá tu PIN de administrador para continuar.</p>
+            <div className="form-row">
+              <label>PIN</label>
+              <input type="password" inputMode="numeric" value={pinInput} onChange={e => setPinInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && submitPin()} autoFocus />
+            </div>
+            <div className="modal-actions">
+              <button className="btn" onClick={() => { setPinModal(null); setPinInput('') }}>Cancelar</button>
+              <button className="btn btn-accept" onClick={submitPin}>Confirmar</button>
             </div>
           </div>
         </div>
