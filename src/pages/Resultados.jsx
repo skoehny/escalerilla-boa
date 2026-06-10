@@ -316,8 +316,9 @@ export default function Resultados() {
         </div>
       )}
 
-      {activeTab === 'partidos' && <div className="section-title">Historial</div>}
-      {activeTab === 'partidos' && <div className="card">
+      {activeTab === 'partidos' && <>
+        <div className="section-title">Historial</div>
+        <div className="card">
         {completed.length === 0
           ? <p style={{ fontSize: 13, color: '#888', textAlign: 'center', padding: '12px 0' }}>Sin partidos jugados aún</p>
           : (() => {
@@ -399,7 +400,8 @@ export default function Resultados() {
             )
           })()
         }
-      </div>
+        </div>
+      </>}
     </div>
   )
 }
