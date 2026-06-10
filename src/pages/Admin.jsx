@@ -213,7 +213,7 @@ export default function Admin() {
       }
     }
     
-    await updatePlayer(p.id, { nombre: p.nombre, apellido: p.apellido, email: p.email, telefono: p.telefono, posicion: newPos, es_admin: p.es_admin, wildcard_usada: p.wildcard_usada || false })
+    await updatePlayer(p.id, { nombre: p.nombre, apellido: p.apellido, email: p.email, telefono: p.telefono, posicion: newPos, es_admin: p.es_admin, es_admin_canchas: p.es_admin_canchas || false, wildcard_usada: p.wildcard_usada || false })
     setEditPlayerModal(null)
     ntf('Perfil actualizado. Ranking reordenado.')
     load()
@@ -661,6 +661,7 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
                 <span style={{ flex: 1, fontSize: 13, color: p.activo ? 'inherit' : '#aaa' }}>{p.nombre} {p.apellido}</span>
                 <span className={`badge ${p.activo ? 'badge-green' : 'badge-gray'}`} style={{ fontSize: 10 }}>{p.activo ? 'activo' : 'inactivo'}</span>
                 {p.es_admin && <span className="badge badge-blue" style={{ fontSize: 10 }}>admin</span>}
+                {p.es_admin_canchas && <span className="badge" style={{ fontSize: 10, background: '#E8F4FD', color: '#1565C0' }}>canchas</span>}
                 {p.activo && !p.wildcard_usada && <span style={{ fontSize: 10, color: '#BA7517' }}>⭐ WC</span>}
                 {p.activo && p.wildcard_usada && <span style={{ fontSize: 10, color: '#aaa' }}>WC usada</span>}
                 <button className="btn" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => setEditPlayerModal({ ...p })}>Editar</button>
@@ -1114,6 +1115,10 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
             <div className="form-row" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <input type="checkbox" id="admin-check" checked={editPlayerModal.es_admin || false} onChange={e => setEditPlayerModal(m => ({ ...m, es_admin: e.target.checked }))} style={{ width: 16, height: 16 }} />
               <label htmlFor="admin-check" style={{ fontSize: 13, color: '#333', marginBottom: 0 }}>Es administrador</label>
+            </div>
+            <div className="form-row" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input type="checkbox" id="admin-canchas-check" checked={editPlayerModal.es_admin_canchas || false} onChange={e => setEditPlayerModal(m => ({ ...m, es_admin_canchas: e.target.checked }))} style={{ width: 16, height: 16 }} />
+              <label htmlFor="admin-canchas-check" style={{ fontSize: 13, color: '#333', marginBottom: 0 }}>Admin de canchas (solo gestiona canchas y pagos)</label>
             </div>
             <div className="form-row" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <input type="checkbox" id="wc-check" checked={editPlayerModal.wildcard_usada || false} onChange={e => setEditPlayerModal(m => ({ ...m, wildcard_usada: e.target.checked }))} style={{ width: 16, height: 16 }} />

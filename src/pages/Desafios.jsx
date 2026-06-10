@@ -70,6 +70,7 @@ export default function Desafios() {
     (c.status === 'pending' || c.status === 'accepted')
   )
   const allActive = challenges.filter(c => c.status === 'pending' || c.status === 'accepted')
+  const playedThisWeek = challenges.filter(c => c.status === 'completed' && c.ranking_applied === false)
 
   if (loading) return <p style={{ color: '#888', fontSize: 13, padding: 24 }}>Cargando...</p>
 
@@ -195,6 +196,30 @@ export default function Desafios() {
           })
         }
       </div>
+
+      {playedThisWeek.length > 0 && (
+        <div style={{ marginTop: 14 }}>
+          <div className="section-title">Jugados esta semana</div>
+          <div className="card">
+            {playedThisWeek.map(c => {
+              const w = c.ganador === 'challenger' ? c.challenger : c.challenged
+              const hasTB = c.tiebreak_a != null && c.tiebreak_b != null
+              return (
+                <div key={c.id} className="row-item">
+                  <span style={{ flex: 1, fontSize: 13 }}>
+                    <span style={{ fontWeight: c.ganador === 'challenger' ? 500 : 400 }}>{c.challenger?.nombre}</span>
+                    <span style={{ color: '#888', fontSize: 12, margin: '0 5px' }}>
+                      {c.score_a}–{c.score_b}{hasTB ? ` (${c.tiebreak_a}–${c.tiebreak_b})` : ''}{c.is_wo ? ' (WO)' : ''}
+                    </span>
+                    <span style={{ fontWeight: c.ganador === 'challenged' ? 500 : 400 }}>{c.challenged?.nombre}</span>
+                  </span>
+                  <span className="badge badge-green" style={{ flexShrink: 0 }}>{w?.nombre}</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       <p style={{ fontSize: 12, color: '#888', marginTop: 4 }}>
         <i className="ti ti-info-circle" style={{ verticalAlign: -2 }} aria-hidden="true" /> 48 h para aceptar · máx. 2 rechazos/mes · 1 partido/semana · lesionados no pueden ser desafiados

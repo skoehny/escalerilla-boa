@@ -12,11 +12,16 @@ export default function Layout() {
   const navItems = [
     { to: '/',           label: 'Ranking',    icon: 'ti-trophy'    },
     { to: '/desafios',   label: 'Desafíos',   icon: 'ti-sword'     },
-    { to: '/canchas',    label: 'Canchas',    icon: 'ti-tennis'    },
     { to: '/resultados', label: 'Resultados', icon: 'ti-chart-bar' },
     { to: '/reglamento', label: 'Bases',      icon: 'ti-book'      },
   ]
-  if (player?.es_admin) navItems.push({ to: '/admin', label: 'Admin', icon: 'ti-settings' })
+  // Admin canchas solo ve canchas
+  if (player?.es_admin_canchas) navItems.splice(1, 0, { to: '/canchas', label: 'Canchas', icon: 'ti-tennis' })
+  // Admin full ve canchas también
+  if (player?.es_admin) {
+    navItems.splice(2, 0, { to: '/canchas', label: 'Canchas', icon: 'ti-tennis' })
+    navItems.push({ to: '/admin', label: 'Admin', icon: 'ti-settings' })
+  }
 
   return (
     <div style={{ minHeight: '100vh', background: '#f5f4f0' }}>
