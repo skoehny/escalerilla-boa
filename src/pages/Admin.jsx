@@ -69,7 +69,7 @@ export default function Admin() {
       setPlayers(pl)
       setChallenges(ch)
       setCourts(co)
-      const { data: snaps } = await supabase.from('ranking_snapshots').select('*').order('created_at', { ascending: false }).limit(1)
+      const { data: snaps } = await supabase.from('ranking_snapshots').select('*').order('id', { ascending: false }).limit(1)
       setSnapshots(snaps || [])
       const { data: hist } = await supabase.from('ranking_history').select('*').order('semana', { ascending: false }).limit(10)
       setRankingHistory(hist || [])
