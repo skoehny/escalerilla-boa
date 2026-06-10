@@ -41,6 +41,7 @@ export default function Admin() {
   const [courts, setCourts] = useState([])
   const [snapshots, setSnapshots] = useState([])
   const [rankingHistory, setRankingHistory] = useState([])
+  const [selectedWeekIdx, setSelectedWeekIdx] = useState(0)
   const [loading, setLoading] = useState(true)
   const [notif, setNotif] = useState(null)
   const [activeTab, setActiveTab] = useState('acciones')
@@ -113,9 +114,6 @@ export default function Admin() {
     })
     await Promise.all(refreshed.map(p => updatePlayer(p.id, { posicion_anterior: p.posicion })))
     await notifyRankingUpdated(cfg?.semana || '—', refreshed.slice(0, 5))
-    const top5 = refreshed.slice(0, 5).map((p, i) => `${i+1}. ${p.nombre} ${p.apellido}`).join('\n')
-    const waRanking = `🎾 *Escalerilla BOA — Ranking Semana ${cfg?.semana || ''}*\n\n🏆 Top 5:\n${top5}\n\nVer ranking completo: https://escalerilla-boa.vercel.app`
-    window.open(`https://wa.me/?text=${encodeURIComponent(waRanking)}`, '_blank')
     ntf('Ranking publicado. Posiciones actualizadas.')
     load()
   }
@@ -307,22 +305,18 @@ export default function Admin() {
   async function saveEditResult() {
     const m = editResultModal
     const sa = parseInt(m.score_a), sb = parseInt(m.score_b)
-    if (isNaN(sa) || isNaN(sb)) { ntf('Ingresa el resultado de ambos jugadores.', 'err'); return }
-    if (sa === sb) { ntf('No puede terminar empatado.', 'err'); return }
-    if (!m.slot_court) { ntf('Selecciona la cancha.', 'err'); return }
-    const finalDate = m.slot_day_edit || m.slot_day || null
-    if (!finalDate) { ntf('Ingresa la fecha del partido.', 'err'); return }
+    if (isNaN(sa) || isNaN(sb)) { ntf('Resultado inválido', 'err'); return }
     const isTB = (sa === 9 && sb === 8) || (sa === 8 && sb === 9)
-    const updates = { score_a: sa, score_b: sb, ganador: m.ganador, slot_court: m.slot_court, slot_day: finalDate }
-    if (m.slot_day_edit) updates.created_at = new Date(m.slot_day_edit + 'T12:00:00').toISOString()
+    const updates = { score_a: sa, score_b: sb, ganador: m.ganador }
     if (isTB) {
       const tba = parseInt(m.tiebreak_a), tbb = parseInt(m.tiebreak_b)
-      if (isNaN(tba) || isNaN(tbb)) { ntf('Ingresa el resultado del tiebreak.', 'err'); return }
-      if (Math.abs(tba - tbb) < 2) { ntf('Tiebreak: diferencia mínima de 2.', 'err'); return }
+      if (isNaN(tba) || isNaN(tbb)) { ntf('Ingresa el tiebreak', 'err'); return }
       updates.tiebreak_a = tba; updates.tiebreak_b = tbb
     } else {
       updates.tiebreak_a = null; updates.tiebreak_b = null
     }
+    if (m.slot_court) updates.slot_court = m.slot_court
+    if (m.slot_day_edit) updates.slot_day = m.slot_day_edit
     await updateChallenge(m.id, updates)
     setEditResultModal(null)
     ntf('Resultado editado.')
@@ -429,35 +423,6 @@ export default function Admin() {
             <button className="btn btn-accept" onClick={publishRanking}><i className="ti ti-trophy" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Publicar ranking</button>
             {snapshots.length > 0 && <button className="btn btn-warn" onClick={undoRanking}><i className="ti ti-arrow-back" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Deshacer ranking</button>}
             <button className="btn btn-warn" onClick={sendReminder}><i className="ti ti-bell" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Recordatorio</button>
-          <button className="btn" style={{ borderColor: '#25D366', color: '#128C7E' }} onClick={() => {
-            const active = challenges.filter(c => c.status === 'accepted')
-            const completed = challenges.filter(c => c.status === 'completed' && c.ranking_applied === false)
-            let msg = '🎾 *Escalerilla BOA — Semana activa*\n\n'
-            if (active.length) {
-              msg += '⚔️ *Partidos programados:*\n'
-              active.forEach(c => {
-                const ch = players.find(p => p.id === c.challenger_id)
-                const cd = players.find(p => p.id === c.challenged_id)
-                msg += `• ${ch?.nombre} vs ${cd?.nombre}${c.slot_day ? ` — ${c.slot_day}${c.slot_hour ? ', ' + c.slot_hour : ''}` : ' — acordando día'}\n`
-              })
-              msg += '\n'
-            }
-            if (completed.length) {
-              msg += '✅ *Jugados esta semana:*\n'
-              completed.forEach(c => {
-                const ch = players.find(p => p.id === c.challenger_id)
-                const cd = players.find(p => p.id === c.challenged_id)
-                const w = c.ganador === 'challenger' ? ch : cd
-                const tb = c.tiebreak_a != null ? ` (${c.tiebreak_a}-${c.tiebreak_b})` : ''
-                msg += `• ${ch?.nombre} ${c.score_a}-${c.score_b}${tb} ${cd?.nombre} → ${w?.nombre} gana\n`
-              })
-              msg += '\n'
-            }
-            msg += '📊 Ver ranking: https://escalerilla-boa.vercel.app'
-            window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank')
-          }}>
-            <i className="ti ti-brand-whatsapp" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Resumen WA
-          </button>
             <button className="btn" onClick={resetWeek}><i className="ti ti-refresh" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Resetear semana</button>
             <button className="btn btn-accept" onClick={() => setNewChallengeModal({ challenger_id: '', challenged_id: '', court: '', day: '', hour: '18:00', paid: false })}>
               <i className="ti ti-plus" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Nuevo desafío
@@ -622,22 +587,62 @@ export default function Admin() {
         <div>
           {rankingHistory.length === 0
             ? <p style={{ fontSize: 13, color: '#888', textAlign: 'center', padding: 24 }}>Sin historial aún. Se genera al publicar el ranking.</p>
-            : rankingHistory.map(week => (
-              <div key={week.id} style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8, color: '#555' }}>
-                  Semana {week.semana} — {fmtDate(week.fecha)}
-                </div>
-                <div className="card">
-                  {(week.data || []).slice(0, 10).map((p, i) => (
-                    <div key={p.id} className="row-item">
-                      <span style={{ width: 24, textAlign: 'center', fontSize: 13, color: '#888' }}>{p.posicion}</span>
-                      <span style={{ flex: 1, fontSize: 13 }}>{p.nombre} {p.apellido}</span>
-                      <span style={{ fontSize: 12, color: '#888' }}>{p.victorias}V {p.derrotas}D</span>
+            : (() => {
+              const week = rankingHistory[selectedWeekIdx]
+              const prevWeek = rankingHistory[selectedWeekIdx + 1]
+              return (
+                <>
+                  {/* Navegación semanas */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                    <button className="btn" style={{ fontSize: 12, padding: '4px 10px' }}
+                      onClick={() => setSelectedWeekIdx(i => Math.min(i + 1, rankingHistory.length - 1))}
+                      disabled={selectedWeekIdx >= rankingHistory.length - 1}>
+                      ← Anterior
+                    </button>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: 13, fontWeight: 500 }}>Semana {week.semana}</div>
+                      <div style={{ fontSize: 11, color: '#888' }}>{fmtDate(week.fecha)}</div>
+                      {selectedWeekIdx === 0 && <span className="badge badge-green" style={{ fontSize: 10 }}>Última</span>}
                     </div>
-                  ))}
-                </div>
-              </div>
-            ))
+                    <button className="btn" style={{ fontSize: 12, padding: '4px 10px' }}
+                      onClick={() => setSelectedWeekIdx(i => Math.max(i - 1, 0))}
+                      disabled={selectedWeekIdx === 0}>
+                      Siguiente →
+                    </button>
+                  </div>
+
+                  {/* Tabla ranking */}
+                  <div className="card">
+                    {(week.data || []).map((p) => {
+                      const prev = prevWeek?.data?.find(x => x.id === p.id)
+                      const diff = prev ? prev.posicion - p.posicion : 0
+                      return (
+                        <div key={p.id} className="row-item">
+                          <span style={{ width: 24, textAlign: 'center', fontSize: 13, fontWeight: 500, color: p.posicion <= 3 ? '#BA7517' : '#888' }}>{p.posicion}</span>
+                          <span style={{ flex: 1, fontSize: 13 }}>{p.nombre} {p.apellido}</span>
+                          <span style={{ fontSize: 12, color: '#888', marginRight: 8 }}>{p.victorias}V {p.derrotas}D</span>
+                          {diff > 0 && <span style={{ fontSize: 11, color: '#3B6D11' }}>↑{diff}</span>}
+                          {diff < 0 && <span style={{ fontSize: 11, color: '#A32D2D' }}>↓{Math.abs(diff)}</span>}
+                          {diff === 0 && <span style={{ fontSize: 11, color: '#888' }}>—</span>}
+                        </div>
+                      )
+                    })}
+                  </div>
+
+                  {/* Selector rápido */}
+                  {rankingHistory.length > 1 && (
+                    <div style={{ marginTop: 10, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {rankingHistory.map((w, i) => (
+                        <button key={w.id} className="btn" style={{ fontSize: 11, padding: '2px 8px', background: i === selectedWeekIdx ? '#1D9E75' : 'transparent', color: i === selectedWeekIdx ? '#fff' : '#555', borderColor: i === selectedWeekIdx ? '#1D9E75' : '#ddd' }}
+                          onClick={() => setSelectedWeekIdx(i)}>
+                          S{w.semana}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )
+            })()
           }
         </div>
       )}
