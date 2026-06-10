@@ -42,6 +42,7 @@ export async function getPlayers() {
     .from('players')
     .select('*')
     .eq('activo', true)
+    .not('posicion', 'is', null)
     .order('posicion', { ascending: true })
   if (error) throw error
   return data
