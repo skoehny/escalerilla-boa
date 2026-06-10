@@ -248,6 +248,32 @@ Usa tu número de WhatsApp para registrarte y completa tu perfil.`
     } catch (err) { ntf(err.message || 'Error al agregar jugador', 'err') }
   }
 
+  async function createPlayer() {
+    const p = newPlayerModal
+    if (!p.nombre?.trim() || !p.apellido?.trim() || !p.telefono?.trim()) { ntf('Nombre, apellido y teléfono son obligatorios.', 'err'); return }
+    try {
+      const lastPos = Math.max(...players.filter(x => x.activo && x.posicion).map(x => x.posicion), 0) + 1
+      const { error } = await supabase.from('players').insert({
+        nombre: p.nombre.trim(), apellido: p.apellido.trim(),
+        telefono: p.telefono.trim(), posicion: lastPos,
+        posicion_anterior: lastPos, activo: true,
+        es_admin: false, victorias: 0, derrotas: 0,
+      })
+      if (error) throw error
+      const msg = `🎾 *Escalerilla BOA — Club BOA*
+
+Hola ${p.nombre}, te invitamos a unirte a la Escalerilla BOA.
+
+Ingresa en: https://escalerilla-boa.vercel.app
+
+Usa tu número de WhatsApp para registrarte y completar tu perfil.`
+      if (navigator.share) { navigator.share({ text: msg }) } else { navigator.clipboard.writeText(msg); ntf('Jugador agregado. Invitación copiada.') }
+      setNewPlayerModal(null)
+      ntf(`${p.nombre} ${p.apellido} agregado en #${lastPos}.`)
+      load()
+    } catch (err) { ntf(err.message || 'Error al agregar jugador', 'err') }
+  }
+
   async function saveEditSlot() {
     const m = editSlotModal
     try {
@@ -495,6 +521,9 @@ Usa tu número de WhatsApp para registrarte y completa tu perfil.`
             </button>
             <button className="btn" onClick={() => setHistorialModal({ challenger_id: '', challenged_id: '', score_a: '', score_b: '', court: '', date: '' })}>
               <i className="ti ti-history" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Agregar historial
+            </button>
+            <button className="btn btn-accept" onClick={() => setNewPlayerModal({ nombre: '', apellido: '', telefono: '' })}>
+              <i className="ti ti-user-plus" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Agregar jugador
             </button>
           <button className="btn" onClick={async () => {
               const msg = '🎾 Escalerilla BOA — Club BOA. Ingresa en: https://escalerilla-boa.vercel.app. Si ya eres jugador: entra con tu número de WhatsApp y completa tu perfil. Si quieres unirte: regístrate con tus datos y el admin te activará.'
