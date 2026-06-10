@@ -216,37 +216,6 @@ export default function Admin() {
     load()
   }
 
-  async function createPlayer() {
-    const p = newPlayerModal
-    if (!p.nombre?.trim() || !p.apellido?.trim() || !p.telefono?.trim()) { ntf('Nombre, apellido y teléfono son obligatorios.', 'err'); return }
-    try {
-      const lastPos = Math.max(...players.filter(x => x.activo && x.posicion).map(x => x.posicion), 0) + 1
-      const { error } = await supabase.from('players').insert({
-        nombre: p.nombre.trim(),
-        apellido: p.apellido.trim(),
-        telefono: p.telefono.trim().replace(/\s/g, ''),
-        posicion: lastPos,
-        posicion_anterior: lastPos,
-        activo: true,
-        es_admin: false,
-        victorias: 0,
-        derrotas: 0,
-      })
-      if (error) throw error
-      // Compartir invitación
-      const msg = `🎾 *Escalerilla BOA — Club BOA*
-
-Hola ${p.nombre}, te invitamos a unirte a la Escalerilla BOA.
-
-Ingresa en: https://escalerilla-boa.vercel.app
-
-Usa tu número de WhatsApp para registrarte y completa tu perfil.`
-      if (navigator.share) { navigator.share({ text: msg }) } else { navigator.clipboard.writeText(msg); ntf('Jugador agregado. Invitación copiada.') }
-      setNewPlayerModal(null)
-      ntf(`${p.nombre} ${p.apellido} agregado en #${lastPos}.`)
-      load()
-    } catch (err) { ntf(err.message || 'Error al agregar jugador', 'err') }
-  }
 
   async function createPlayer() {
     const p = newPlayerModal
