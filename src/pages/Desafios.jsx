@@ -214,6 +214,7 @@ export default function Desafios() {
                     <span style={{ fontWeight: c.ganador === 'challenged' ? 500 : 400 }}>{c.challenged?.nombre}</span>
                   </span>
                   <span className="badge badge-green" style={{ flexShrink: 0 }}>{w?.nombre}</span>
+                  {c.slot_day && <span style={{ fontSize: 11, color: '#888', marginLeft: 6 }}>{fmtDate(c.slot_day)}</span>}
                 </div>
               )
             })}
