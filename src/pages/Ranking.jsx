@@ -13,22 +13,11 @@ function fmtShortDate(d) {
   } catch { return d }
 }
 
-function inactivityBadge(p) {
-  const w = p.semanas_inactivo || 0
-  if (w < 1) return null
-  // Calcular días desde el último jueves
-  const today = new Date()
-  let lastThursday = new Date(today)
-  while (lastThursday.getDay() !== 4) lastThursday.setDate(lastThursday.getDate() - 1)
-  const days = Math.floor((today - lastThursday) / (1000 * 60 * 60 * 24))
-  return `${w}S ${days}D`
-}
-
-function injuryBadge(p) {
-  if (!p.lesionado || !p.lesion_fecha) return p.lesionado ? '0S 0D' : null
-  const start = new Date(p.lesion_fecha)
-  const now = new Date()
-  const diffDays = Math.floor((now - start) / (1000 * 60 * 60 * 24))
+function playerInactivity(p) {
+  const ref = p.ultima_fecha_jugada || p.created_at
+  if (!ref) return null
+  const diffDays = Math.floor((new Date() - new Date(ref)) / (1000 * 60 * 60 * 24))
+  if (diffDays < 7) return null
   const weeks = Math.floor(diffDays / 7)
   const days = diffDays % 7
   return `${weeks}S ${days}D`
@@ -114,12 +103,17 @@ export default function Ranking() {
     <div>
       {notif && <div className={`notif notif-${notif.type}`}><i className={`ti ti-${notif.type === 'ok' ? 'check' : 'alert-triangle'}`} aria-hidden="true" /> {notif.msg}</div>}
 
-      <div className="week-banner">
-        <span style={{ fontSize: 12 }}>
-          <i className="ti ti-calendar" style={{ fontSize: 13, verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />
-          Semana {weekConfig?.semana || '—'} · cierra mié {fmtShortDate(weekConfig?.fecha_cierre)} · próx. actualización jue {fmtShortDate(weekConfig?.fecha_ranking)} 11:59
-        </span>
-        {hasActive && <span style={{ marginTop: 4, display: 'inline-flex', alignItems: 'center', gap: 6 }}><span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 14, height: 14, borderRadius: '50%', background: '#C5E635', color: '#fff' }}><i className="ti ti-check" style={{ fontSize: 9 }} aria-hidden="true" /></span><span style={{ fontSize: 12, color: '#0F6E56', fontWeight: 500 }}>Ya tienes un desafío activo</span></span>}
+      <div style={{ background: '#E1F5EE', borderRadius: 8, padding: '10px 12px', marginBottom: 10 }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: '#0F6E56', marginBottom: 4 }}>Semana {weekConfig?.semana || '—'}</div>
+        <div style={{ fontSize: 12, color: '#555' }}>Cierra mié {fmtShortDate(weekConfig?.fecha_cierre)} · próx. actualización jue {fmtShortDate(weekConfig?.fecha_ranking)} 11:59</div>
+        {hasActive && (
+          <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 18, height: 18, borderRadius: '50%', background: '#C5E635', flexShrink: 0 }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#3B6D11" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            </span>
+            <span style={{ fontSize: 12, color: '#0F6E56', fontWeight: 500 }}>Ya tienes un desafío activo</span>
+          </div>
+        )}
       </div>
 
       <div className="stats-grid">
@@ -167,10 +161,10 @@ export default function Ranking() {
               </div>
               <span style={{ flex: 1, fontSize: 13, cursor: 'pointer' }} onClick={() => navigate(`/jugador/${p.id}`)}>
                 {p.nombre} {p.apellido}
-                {targetHasActive && <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 14, height: 14, borderRadius: '50%', background: '#C5E635', color: '#fff', marginLeft: 6, verticalAlign: 'middle' }}><i className="ti ti-check" style={{ fontSize: 9 }} aria-hidden="true" /></span>}
+                {targetHasActive && <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 14, height: 14, borderRadius: '50%', background: '#C5E635', marginLeft: 6, verticalAlign: 'middle', flexShrink: 0 }}><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#3B6D11" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>}
                 {isMe && <span style={{ fontSize: 11, color: '#1D9E75', marginLeft: 4 }}>(tú)</span>}
-                {p.lesionado && <span className="badge badge-red" style={{ fontSize: 10, marginLeft: 4 }}>Lesionado{injuryBadge(p) ? ` (${injuryBadge(p)})` : ''}</span>}
-                {!p.lesionado && inactivityBadge(p) && <span style={{ fontSize: 10, marginLeft: 4, color: '#888', background: '#f0efe8', padding: '2px 6px', borderRadius: 6 }}>Inactividad ({inactivityBadge(p)})</span>}
+                {p.lesionado && <span className="badge badge-red" style={{ fontSize: 10, marginLeft: 4 }}>Lesionado{playerInactivity(p) ? ` (${playerInactivity(p)})` : ''}</span>}
+                {!p.lesionado && playerInactivity(p) && <span style={{ color: '#888', fontSize: 11, marginLeft: 4 }}>({playerInactivity(p)})</span>}
               </span>
               <span style={{ fontSize: 12, color: '#888' }}>{p.victorias || 0}V {p.derrotas || 0}D</span>
               <span style={{ width: 24, textAlign: 'center' }}>{trend(p.posicion, p.posicion_anterior)}</span>
