@@ -13,8 +13,9 @@ function fmtShortDate(d) {
   } catch { return d }
 }
 
-function playerInactivity(p) {
-  const ref = p.ultima_fecha_jugada || p.created_at
+function playerInactivity(p, lastPlayedDate) {
+  // Misma lógica que JugadorPerfil: prioriza la fecha del último partido completado real
+  const ref = lastPlayedDate || p.ultima_fecha_jugada || p.created_at
   if (!ref) return null
   const diffDays = Math.floor((new Date() - new Date(ref)) / (1000 * 60 * 60 * 24))
   if (diffDays < 7) return null
@@ -99,6 +100,18 @@ export default function Ranking() {
 
   if (loading) return <p style={{ color: '#888', fontSize: 13, textAlign: 'center', padding: 24 }}>Cargando ranking...</p>
 
+  // Mapa: última fecha de partido completado por jugador (derivado de challenges, fuente de verdad)
+  const lastPlayedByPlayer = {}
+  challenges.forEach(c => {
+    if (c.status !== 'completed') return
+    const date = c.created_at
+    ;[c.challenger_id, c.challenged_id].forEach(pid => {
+      if (!lastPlayedByPlayer[pid] || new Date(date) > new Date(lastPlayedByPlayer[pid])) {
+        lastPlayedByPlayer[pid] = date
+      }
+    })
+  })
+
   return (
     <div>
       {notif && <div className={`notif notif-${notif.type}`}><i className={`ti ti-${notif.type === 'ok' ? 'check' : 'alert-triangle'}`} aria-hidden="true" /> {notif.msg}</div>}
@@ -138,6 +151,8 @@ export default function Ranking() {
         {players.map(p => {
           const isMe = p.id === player?.id
           const numColor = p.posicion <= 3 ? '#D85A30' : '#888'
+          const lastPlayed = lastPlayedByPlayer[p.id]
+          const inact = playerInactivity(p, lastPlayed)
           const targetHasActive = challenges.some(c =>
             (c.challenger_id === p.id || c.challenged_id === p.id) &&
             (c.status === 'pending' || c.status === 'accepted' ||
@@ -163,8 +178,8 @@ export default function Ranking() {
                 {p.nombre} {p.apellido}
                 {targetHasActive && <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 14, height: 14, borderRadius: '50%', background: '#C5E635', marginLeft: 6, verticalAlign: 'middle', flexShrink: 0 }}><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#3B6D11" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>}
                 {isMe && <span style={{ fontSize: 11, color: '#1D9E75', marginLeft: 4 }}>(tú)</span>}
-                {p.lesionado && <span className="badge badge-red" style={{ fontSize: 10, marginLeft: 4 }}>Lesionado{playerInactivity(p) ? ` (${playerInactivity(p)})` : ''}</span>}
-                {!p.lesionado && playerInactivity(p) && <span style={{ color: '#888', fontSize: 11, marginLeft: 4 }}>({playerInactivity(p)})</span>}
+                {p.lesionado && <span className="badge badge-red" style={{ fontSize: 10, marginLeft: 4 }}>Lesionado{inact ? ` (${inact})` : ''}</span>}
+                {!p.lesionado && inact && <span style={{ color: '#888', fontSize: 11, marginLeft: 4 }}>({inact})</span>}
               </span>
               <span style={{ fontSize: 12, color: '#888' }}>{p.victorias || 0}V {p.derrotas || 0}D</span>
               <span style={{ width: 24, textAlign: 'center' }}>{trend(p.posicion, p.posicion_anterior)}</span>
