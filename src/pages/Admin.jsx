@@ -202,6 +202,9 @@ export default function Admin() {
 
   async function saveEditPlayer() {
     const p = editPlayerModal
+    // Validar duplicado (excluyendo el mismo jugador)
+    const dup = players.find(x => x.id !== p.id && x.nombre?.trim().toLowerCase() === p.nombre?.trim().toLowerCase() && x.apellido?.trim().toLowerCase() === p.apellido?.trim().toLowerCase())
+    if (dup) { ntf(`Ya existe otro jugador con el mismo nombre y apellido (#${dup.posicion}).`, 'err'); return }
     const newPos = parseInt(p.posicion)
     const oldPos = players.find(x => x.id === p.id)?.posicion
     
@@ -264,6 +267,9 @@ export default function Admin() {
   async function createPlayer() {
     const p = newPlayerModal
     if (!p.nombre?.trim() || !p.apellido?.trim() || !p.telefono?.trim()) { ntf('Nombre, apellido y teléfono son obligatorios.', 'err'); return }
+    // Validar duplicado nombre + apellido
+    const dup = players.find(x => x.nombre?.trim().toLowerCase() === p.nombre.trim().toLowerCase() && x.apellido?.trim().toLowerCase() === p.apellido.trim().toLowerCase())
+    if (dup) { ntf(`Ya existe un jugador con el mismo nombre y apellido (#${dup.posicion}).`, 'err'); return }
     try {
       const lastPos = Math.max(...players.filter(x => x.activo && x.posicion).map(x => x.posicion), 0) + 1
       const { error } = await supabase.from('players').insert({
@@ -304,6 +310,18 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
 
   async function createChallengeAdmin() {
     const m = newChallengeModal
+    if (!m.challenger_id || !m.challenged_id) { ntf('Selecciona ambos jugadores.', 'err'); return }
+    if (m.challenger_id === m.challenged_id) { ntf('No puede desafiarse a sí mismo.', 'err'); return }
+    // Validar disponibilidad
+    const ch = players.find(p => p.id === m.challenger_id)
+    const cd = players.find(p => p.id === m.challenged_id)
+    if (ch?.lesionado) { ntf(`${ch.nombre} está lesionado.`, 'err'); return }
+    if (cd?.lesionado) { ntf(`${cd.nombre} está lesionado.`, 'err'); return }
+    const chBusy = challenges.some(c => (c.challenger_id === m.challenger_id || c.challenged_id === m.challenger_id) && (c.status === 'pending' || c.status === 'accepted' || (c.status === 'completed' && !c.ranking_applied)))
+    const cdBusy = challenges.some(c => (c.challenger_id === m.challenged_id || c.challenged_id === m.challenged_id) && (c.status === 'pending' || c.status === 'accepted' || (c.status === 'completed' && !c.ranking_applied)))
+    if (chBusy) { ntf(`${ch?.nombre} ya tiene un desafío esta semana.`, 'err'); return }
+    if (cdBusy) { ntf(`${cd?.nombre} ya tiene un desafío esta semana.`, 'err'); return }
+    const m = newChallengeModal
     if (!m.challenger_id || !m.challenged_id) { ntf('Selecciona ambos jugadores', 'err'); return }
     if (m.challenger_id === m.challenged_id) { ntf('No pueden ser el mismo jugador', 'err'); return }
     const challengerP = players.find(p => p.id === m.challenger_id)
@@ -333,6 +351,24 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
       ntf('Desafío creado.')
       load()
     } catch (err) { ntf(err.message || 'Error al crear', 'err') }
+  }
+
+  async function adminAcceptChallenge(c) {
+    if (!confirm(`¿Aceptar el desafío en nombre de ${c.challenged?.nombre}?`)) return
+    try {
+      await updateChallenge(c.id, { status: 'accepted' })
+      ntf('Desafío aceptado.')
+      load()
+    } catch (err) { ntf(err.message, 'err') }
+  }
+
+  async function adminRejectChallenge(c) {
+    if (!confirm(`¿Rechazar el desafío en nombre de ${c.challenged?.nombre}?`)) return
+    try {
+      await updateChallenge(c.id, { status: 'expired' })
+      ntf('Desafío rechazado.', 'warn')
+      load()
+    } catch (err) { ntf(err.message, 'err') }
   }
 
   async function expireChallenge(c) {
@@ -464,6 +500,7 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
 
 
   const acceptedChallenges = challenges.filter(c => c.status === 'accepted')
+  const pendingChallenges = challenges.filter(c => c.status === 'pending')
   const completedChallenges = challenges.filter(c => c.status === 'completed')
   const pendingActivation = players.filter(p => !p.activo)
   const activePlayers = players.filter(p => p.activo).sort((a, b) => (a.posicion || 999) - (b.posicion || 999))
@@ -496,15 +533,26 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
             {snapshots.length > 0 && <button className="btn btn-warn" onClick={undoRanking}><i className="ti ti-arrow-back" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Deshacer ranking</button>}
             <button className="btn btn-warn" onClick={sendReminder}><i className="ti ti-bell" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Recordatorio</button>
           <button className="btn" style={{ borderColor: '#25D366', color: '#128C7E' }} onClick={() => {
+            const pending = challenges.filter(c => c.status === 'pending')
             const active = challenges.filter(c => c.status === 'accepted')
             const completed = challenges.filter(c => c.status === 'completed' && c.ranking_applied === false)
+            const nm = p => `${p?.nombre || ''} ${p?.apellido || ''}`.trim()
             let msg = '🎾 *Escalerilla BOA — Semana activa*\n\n'
+            if (pending.length) {
+              msg += '⏳ *Pendientes de aceptación:*\n'
+              pending.forEach(c => {
+                const ch = players.find(p => p.id === c.challenger_id)
+                const cd = players.find(p => p.id === c.challenged_id)
+                msg += `• ${nm(ch)} desafió a ${nm(cd)}\n`
+              })
+              msg += '\n'
+            }
             if (active.length) {
               msg += '⚔️ *Partidos programados:*\n'
               active.forEach(c => {
                 const ch = players.find(p => p.id === c.challenger_id)
                 const cd = players.find(p => p.id === c.challenged_id)
-                msg += `• ${ch?.nombre} vs ${cd?.nombre}${c.slot_day ? ` — ${c.slot_day}${c.slot_hour ? ', ' + c.slot_hour : ''}` : ' — acordando día'}\n`
+                msg += `• ${nm(ch)} vs ${nm(cd)}${c.slot_day ? ` — ${c.slot_day}${c.slot_hour ? ', ' + c.slot_hour : ''}` : ' — acordando día'}\n`
               })
               msg += '\n'
             }
@@ -515,7 +563,7 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
                 const cd = players.find(p => p.id === c.challenged_id)
                 const w = c.ganador === 'challenger' ? ch : cd
                 const tb = c.tiebreak_a != null ? ` (${c.tiebreak_a}-${c.tiebreak_b})` : ''
-                msg += `• ${ch?.nombre} ${c.score_a}-${c.score_b}${tb} ${cd?.nombre} → ${w?.nombre} gana\n`
+                msg += `• ${nm(ch)} ${c.score_a}-${c.score_b}${tb} ${nm(cd)} → ${nm(w)} gana\n`
               })
               msg += '\n'
             }
@@ -580,6 +628,28 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
       {/* DESAFÍOS */}
       {activeTab === 'desafíos' && (
         <div>
+          {pendingChallenges.length > 0 && (
+            <>
+              <div style={{ fontSize: 12, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>Pendientes de aceptación ({pendingChallenges.length})</div>
+              <div className="card" style={{ marginBottom: 14 }}>
+                {pendingChallenges.map(c => {
+                  const ch = c.challenger || players.find(p => p.id === c.challenger_id)
+                  const cd = c.challenged || players.find(p => p.id === c.challenged_id)
+                  return (
+                    <div key={c.id} style={{ borderBottom: '0.5px solid #f0efe8', paddingBottom: 10, marginBottom: 10 }}>
+                      <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>{ch?.nombre} {ch?.apellido} → {cd?.nombre} {cd?.apellido}</div>
+                      <div style={{ fontSize: 11, color: '#888', marginBottom: 8 }}>Pendiente · vence {fmtDate(c.deadline)}</div>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        <button className="btn btn-accept" style={{ fontSize: 12 }} onClick={() => adminAcceptChallenge(c)}>Aceptar</button>
+                        <button className="btn btn-warn" style={{ fontSize: 12 }} onClick={() => adminRejectChallenge(c)}>Rechazar</button>
+                        <button className="btn btn-reject" style={{ fontSize: 12 }} onClick={() => setCancelModal(c)}>Cancelar</button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </>
+          )}
           <div style={{ fontSize: 12, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>Desafíos activos ({acceptedChallenges.length})</div>
           <div className="card">
             {acceptedChallenges.length === 0
