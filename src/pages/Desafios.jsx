@@ -122,6 +122,7 @@ export default function Desafios() {
     (c.challenger_id === player?.id || c.challenged_id === player?.id) &&
     (c.status === 'pending' || c.status === 'accepted')
   )
+  const mySent = challenges.filter(c => c.challenger_id === player?.id && c.status === 'pending')
   const allActive = challenges.filter(c => c.status === 'pending' || c.status === 'accepted')
   const playedThisWeek = challenges.filter(c => c.status === 'completed' && c.ranking_applied === false)
 
@@ -191,6 +192,35 @@ export default function Desafios() {
         <div className={`notif notif-${notif.type}`}>
           <i className={`ti ti-${notif.type === 'ok' ? 'check' : 'alert-triangle'}`} aria-hidden="true" />
           {notif.msg}
+        </div>
+      )}
+
+      <p style={{ fontSize: 12, color: '#888', marginBottom: 10 }}>
+        <i className="ti ti-info-circle" style={{ verticalAlign: -2 }} aria-hidden="true" /> 48 h para aceptar · máx. 2 rechazos/mes · 1 partido/semana · lesionados no pueden ser desafiados
+      </p>
+
+      {mySent.length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          <div className="section-title">
+            Desafíos enviados pendientes <span className="badge badge-amber">{mySent.length}</span>
+          </div>
+          {mySent.map(c => (
+            <div key={c.id} className="card" style={{ borderColor: '#5DCAA5' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 500 }}>
+                    Desafiaste a {c.challenged?.nombre} {c.challenged?.apellido}
+                  </div>
+                  <div style={{ fontSize: 12, color: '#888' }}>
+                    Esperando respuesta · vence {fmtDate(c.deadline)}
+                  </div>
+                </div>
+                <button className="btn btn-reject" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => cancelChallenge(c)}>
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
@@ -333,9 +363,7 @@ export default function Desafios() {
         </div>
       )}
 
-      <p style={{ fontSize: 12, color: '#888', marginTop: 4 }}>
-        <i className="ti ti-info-circle" style={{ verticalAlign: -2 }} aria-hidden="true" /> 48 h para aceptar · máx. 2 rechazos/mes · 1 partido/semana · lesionados no pueden ser desafiados
-      </p>
+
     </div>
   )
 }
