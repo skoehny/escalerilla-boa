@@ -101,34 +101,99 @@ export default function Admin() {
   }
 
   async function publishRanking() {
-    const active = players.filter(p => p.activo).sort((a, b) => a.posicion - b.posicion)
+    const { data: cfg } = await supabase.from('weekly_config').select('*').eq('id', 1).single()
+    const active = players.filter(p => p.activo && p.posicion != null).sort((a, b) => a.posicion - b.posicion)
+    const originalPos = {}
+    active.forEach(p => { originalPos[p.id] = p.posicion })
 
-    // Calcular movimientos de partidos completados esta semana
-    const pending = challenges.filter(c => c.status === 'completed' && !c.ranking_applied)
+    // ── PASO 1: Penalizaciones por inactividad (ANTES de los resultados) ──
+    // Última fecha jugada real: derivada de partidos completados (fuente de verdad)
+    const lastPlayedBy = {}
+    challenges.forEach(c => {
+      if (c.status !== 'completed') return
+      ;[c.challenger_id, c.challenged_id].forEach(pid => {
+        if (!lastPlayedBy[pid] || new Date(c.created_at) > new Date(lastPlayedBy[pid])) {
+          lastPlayedBy[pid] = c.created_at
+        }
+      })
+    })
+
+    // Exención A: intención de jugar — tuvo algún desafío esta semana
+    // (activo ahora, jugado pendiente de aplicar, o creado dentro de la semana aunque
+    //  haya sido rechazado/cancelado/expirado — la intención cuenta)
+    const weekStart = cfg?.fecha_inicio ? new Date(cfg.fecha_inicio + 'T00:00:00') : null
+    const intentToPlay = pid => challenges.some(c =>
+      (c.challenger_id === pid || c.challenged_id === pid) && (
+        c.status === 'pending' || c.status === 'accepted' ||
+        (c.status === 'completed' && !c.ranking_applied) ||
+        (weekStart && new Date(c.created_at) >= weekStart)
+      )
+    )
+
+    // Exención B: sin rivales disponibles arriba (todos lesionados u ocupados en desafío)
+    const busy = new Set()
+    challenges.forEach(c => {
+      if (c.status === 'pending' || c.status === 'accepted' || (c.status === 'completed' && !c.ranking_applied)) {
+        busy.add(c.challenger_id)
+        busy.add(c.challenged_id)
+      }
+    })
+    const sinRivales = p => active.filter(x =>
+      originalPos[x.id] < originalPos[p.id] && !x.lesionado && !busy.has(x.id)
+    ).length === 0
+
+    // Castigo: 1ª semana inactivo = -2; cada semana adicional = -1. Aplica igual a lesionados.
+    const penMap = {}
+    const penaltyLog = []
+    for (const p of active) {
+      const ref = lastPlayedBy[p.id] || p.ultima_fecha_jugada || p.created_at
+      if (!ref) continue
+      const weeks = Math.floor((new Date() - new Date(ref)) / (7 * 24 * 60 * 60 * 1000))
+      if (weeks < 1) continue
+      if (intentToPlay(p.id)) continue
+      if (sinRivales(p)) continue
+      penMap[p.id] = weeks === 1 ? 2 : 1
+      penaltyLog.push(`${p.nombre} ${p.apellido} (-${penMap[p.id]})`)
+    }
+
+    // Reordenar: penalizado apunta a (posición + castigo). Los no penalizados tienen
+    // prioridad en caso de empate y suben llenando los huecos en su orden original.
+    active.sort((a, b) => {
+      const ka = originalPos[a.id] + (penMap[a.id] || 0)
+      const kb = originalPos[b.id] + (penMap[b.id] || 0)
+      if (ka !== kb) return ka - kb
+      const pa = penMap[a.id] ? 1 : 0, pb = penMap[b.id] ? 1 : 0
+      if (pa !== pb) return pa - pb
+      return originalPos[a.id] - originalPos[b.id]
+    })
+    active.forEach((p, i) => { p.posicion = i + 1 })
+
+    // ── PASO 2: Resultados de partidos (sobre el ranking ya penalizado) ──
+    const pending = challenges
+      .filter(c => c.status === 'completed' && !c.ranking_applied)
+      .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
     for (const c of pending) {
-      const ch = players.find(p => p.id === c.challenger_id)
-      const cd = players.find(p => p.id === c.challenged_id)
+      const ch = active.find(p => p.id === c.challenger_id)
+      const cd = active.find(p => p.id === c.challenged_id)
       if (!ch || !cd) continue
       if (c.ganador === 'challenger' && ch.posicion > cd.posicion) {
         const wp = ch.posicion, lp = cd.posicion
-        for (const p of players) {
-          if (p.posicion >= lp && p.posicion < wp) {
-            await updatePlayer(p.id, { posicion_anterior: p.posicion, posicion: p.posicion + 1 })
-            p.posicion = p.posicion + 1
-          }
+        for (const p of active) {
+          if (p.posicion >= lp && p.posicion < wp) p.posicion += 1
         }
-        await updatePlayer(ch.id, { posicion_anterior: ch.posicion, posicion: lp })
         ch.posicion = lp
-      } else if (c.ganador === 'challenged' && cd.posicion > ch.posicion) {
-        // Desafiado gana — no mueve ranking
       }
-      await updateChallenge(c.id, { ranking_applied: true })
+      // Desafiado gana — no mueve ranking
     }
+    active.sort((a, b) => a.posicion - b.posicion)
 
-    // Snapshot y historial
-    const refreshed = players.filter(p => p.activo).sort((a, b) => a.posicion - b.posicion)
-    await supabase.from('ranking_snapshots').insert({ data: refreshed.map(p => ({ player_id: p.id, posicion: p.posicion, posicion_anterior: p.posicion_anterior })), applied_challenge_ids: pending.map(c => c.id) })
-    const { data: cfg } = await supabase.from('weekly_config').select('semana').eq('id', 1).single()
+    // ── PASO 3: Persistir todo de una vez ──
+    await Promise.all(active.map(p => updatePlayer(p.id, { posicion: p.posicion, posicion_anterior: p.posicion })))
+    await Promise.all(pending.map(c => updateChallenge(c.id, { ranking_applied: true })))
+
+    // Snapshot (posicion_anterior = posición ANTES de publicar, para poder deshacer)
+    const refreshed = active
+    await supabase.from('ranking_snapshots').insert({ data: refreshed.map(p => ({ player_id: p.id, posicion: p.posicion, posicion_anterior: originalPos[p.id] })), applied_challenge_ids: pending.map(c => c.id) })
     // Upsert para sobreescribir si ya existe esa semana
     await supabase.from('ranking_history').upsert({
       semana: cfg?.semana || 0,
@@ -137,7 +202,6 @@ export default function Admin() {
       hora_publicacion: new Date().toISOString(),
       data: refreshed.map(p => ({ id: p.id, nombre: p.nombre, apellido: p.apellido, posicion: p.posicion, victorias: p.victorias, derrotas: p.derrotas }))
     }, { onConflict: 'semana' })
-    await Promise.all(refreshed.map(p => updatePlayer(p.id, { posicion_anterior: p.posicion })))
     // Marcar como publicado manual + avanzar semana
     const today = new Date()
     const todayStr = today.toISOString().split('T')[0]
@@ -157,7 +221,9 @@ export default function Admin() {
       publicado_manual: true
     }).eq('id', 1)
     await notifyRankingUpdated(cfg?.semana || '—', refreshed.slice(0, 5))
-    ntf('Ranking publicado. Próxima semana iniciada.')
+    ntf(penaltyLog.length
+      ? `Ranking publicado. Penalizaciones por inactividad: ${penaltyLog.join(', ')}.`
+      : 'Ranking publicado. Sin penalizaciones por inactividad esta semana.')
     load()
   }
 
