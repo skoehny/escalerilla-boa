@@ -133,17 +133,27 @@ export default function Admin() {
     await supabase.from('ranking_history').upsert({
       semana: cfg?.semana || 0,
       fecha: new Date().toISOString().split('T')[0],
+      publicado_por: 'manual',
+      hora_publicacion: new Date().toISOString(),
       data: refreshed.map(p => ({ id: p.id, nombre: p.nombre, apellido: p.apellido, posicion: p.posicion, victorias: p.victorias, derrotas: p.derrotas }))
     }, { onConflict: 'semana' })
     await Promise.all(refreshed.map(p => updatePlayer(p.id, { posicion_anterior: p.posicion })))
-    // Marcar como publicado manual + avanzar semana (igual que el cron)
-    const today = new Date().toISOString().split('T')[0]
-    const nextWeek = new Date(); nextWeek.setDate(nextWeek.getDate() + 7)
+    // Marcar como publicado manual + avanzar semana
+    const today = new Date()
+    const todayStr = today.toISOString().split('T')[0]
+    // Próximo miércoles (cierre)
+    const nextWed = new Date(today)
+    const daysToWed = (3 - today.getDay() + 7) % 7 || 7
+    nextWed.setDate(today.getDate() + daysToWed)
+    // Próximo jueves (publicación)
+    const nextThu = new Date(today)
+    const daysToThu = (4 - today.getDay() + 7) % 7 || 7
+    nextThu.setDate(today.getDate() + daysToThu)
     await supabase.from('weekly_config').update({
       semana: (cfg?.semana || 0) + 1,
-      fecha_inicio: today,
-      fecha_cierre: nextWeek.toISOString().split('T')[0],
-      fecha_ranking: nextWeek.toISOString().split('T')[0],
+      fecha_inicio: todayStr,
+      fecha_cierre: nextWed.toISOString().split('T')[0],
+      fecha_ranking: nextThu.toISOString().split('T')[0],
       publicado_manual: true
     }).eq('id', 1)
     await notifyRankingUpdated(cfg?.semana || '—', refreshed.slice(0, 5))
@@ -524,7 +534,13 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
       {activeTab === 'acciones' && (
         <div>
           <div className="card" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', padding: '10px 12px' }}>
-            <button className="btn btn-accept" onClick={() => confirmWithPin(publishRanking)}><i className="ti ti-trophy" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Publicar ranking</button>
+            <button className="btn btn-accept" onClick={() => {
+              const day = new Date().getDay()
+              if (day !== 4) {
+                if (!confirm('⚠️ La publicación normalmente se hace los JUEVES. ¿Estás seguro de publicar hoy?')) return
+              }
+              confirmWithPin(publishRanking)
+            }}><i className="ti ti-trophy" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Publicar ranking</button>
             {snapshots.length > 0 && <button className="btn btn-warn" onClick={undoRanking}><i className="ti ti-arrow-back" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Deshacer ranking</button>}
             <button className="btn btn-warn" onClick={sendReminder}><i className="ti ti-bell" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Recordatorio</button>
           <button className="btn" style={{ borderColor: '#25D366', color: '#128C7E' }} onClick={() => {
