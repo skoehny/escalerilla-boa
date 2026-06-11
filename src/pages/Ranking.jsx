@@ -119,7 +119,7 @@ export default function Ranking() {
           <i className="ti ti-calendar" style={{ fontSize: 13, verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />
           Semana {weekConfig?.semana || '—'} · cierra mié {fmtShortDate(weekConfig?.fecha_cierre)} · próx. actualización jue {fmtShortDate(weekConfig?.fecha_ranking)} 11:59
         </span>
-        {hasActive && <span className="badge badge-green" style={{ marginTop: 4 }}>✓ 1 desafío activo</span>}
+        {hasActive && <span className="badge badge-green" style={{ marginTop: 4 }}>✓ Ya tienes un desafío activo</span>}
       </div>
 
       <div className="stats-grid">
@@ -167,6 +167,7 @@ export default function Ranking() {
               </div>
               <span style={{ flex: 1, fontSize: 13, cursor: 'pointer' }} onClick={() => navigate(`/jugador/${p.id}`)}>
                 {p.nombre} {p.apellido}
+                {targetHasActive && <span style={{ fontSize: 11, color: '#1D9E75', marginLeft: 4, fontWeight: 500 }}>✓</span>}
                 {isMe && <span style={{ fontSize: 11, color: '#1D9E75', marginLeft: 4 }}>(tú)</span>}
                 {p.lesionado && <span className="badge badge-red" style={{ fontSize: 10, marginLeft: 4 }}>Lesionado{injuryBadge(p) ? ` (${injuryBadge(p)})` : ''}</span>}
                 {!p.lesionado && inactivityBadge(p) && <span style={{ fontSize: 10, marginLeft: 4, color: '#888', background: '#f0efe8', padding: '2px 6px', borderRadius: 6 }}>Inactividad ({inactivityBadge(p)})</span>}
