@@ -129,14 +129,25 @@ export default function Admin() {
     const refreshed = players.filter(p => p.activo).sort((a, b) => a.posicion - b.posicion)
     await supabase.from('ranking_snapshots').insert({ data: refreshed.map(p => ({ player_id: p.id, posicion: p.posicion, posicion_anterior: p.posicion_anterior })), applied_challenge_ids: pending.map(c => c.id) })
     const { data: cfg } = await supabase.from('weekly_config').select('semana').eq('id', 1).single()
-    await supabase.from('ranking_history').insert({
+    // Upsert para sobreescribir si ya existe esa semana
+    await supabase.from('ranking_history').upsert({
       semana: cfg?.semana || 0,
       fecha: new Date().toISOString().split('T')[0],
       data: refreshed.map(p => ({ id: p.id, nombre: p.nombre, apellido: p.apellido, posicion: p.posicion, victorias: p.victorias, derrotas: p.derrotas }))
-    })
+    }, { onConflict: 'semana' })
     await Promise.all(refreshed.map(p => updatePlayer(p.id, { posicion_anterior: p.posicion })))
+    // Marcar como publicado manual + avanzar semana (igual que el cron)
+    const today = new Date().toISOString().split('T')[0]
+    const nextWeek = new Date(); nextWeek.setDate(nextWeek.getDate() + 7)
+    await supabase.from('weekly_config').update({
+      semana: (cfg?.semana || 0) + 1,
+      fecha_inicio: today,
+      fecha_cierre: nextWeek.toISOString().split('T')[0],
+      fecha_ranking: nextWeek.toISOString().split('T')[0],
+      publicado_manual: true
+    }).eq('id', 1)
     await notifyRankingUpdated(cfg?.semana || '—', refreshed.slice(0, 5))
-    ntf('Ranking publicado. Posiciones actualizadas.')
+    ntf('Ranking publicado. Próxima semana iniciada.')
     load()
   }
 
