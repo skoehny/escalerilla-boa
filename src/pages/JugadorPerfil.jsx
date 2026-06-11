@@ -5,6 +5,28 @@ import { useSession } from '../components/SessionContext'
 
 function ini(n, a) { return ((n?.[0] || '') + (a?.[0] || '')).toUpperCase() }
 
+function inactivityTime(player, lastPlayedDate) {
+  const referenceDate = lastPlayedDate || player?.ultima_fecha_jugada || player?.created_at
+  if (!referenceDate) return null
+  const now = new Date()
+  const ref = new Date(referenceDate)
+  const diffDays = Math.floor((now - ref) / (1000 * 60 * 60 * 24))
+  if (diffDays < 7) return null
+  const weeks = Math.floor(diffDays / 7)
+  const days = diffDays % 7
+  return `${weeks}S ${days}D`
+}
+
+function statusText(c) {
+  if (!c) return ''
+  if (c.status === 'pending') return 'Desafío pendiente de aceptación'
+  if (c.status === 'accepted' && !c.slot_day) return 'Acordando día'
+  if (c.status === 'accepted' && c.slot_day && !c.pago_confirmado) return `Cancha reservada · ${c.slot_day} ${c.slot_hour || ''}`
+  if (c.status === 'accepted' && c.pago_confirmado) return `Listo para jugar · ${c.slot_day} ${c.slot_hour || ''}`
+  if (c.status === 'completed') return `Jugado: ${c.score_a}–${c.score_b}`
+  return ''
+}
+
 function fmtDate(d) {
   if (!d) return ''
   try { return new Date(d).toLocaleDateString('es-CL', { day: 'numeric', month: 'short' }) }
@@ -26,6 +48,7 @@ export default function JugadorPerfil() {
   const { player: me } = useSession()
   const [jugador, setJugador] = useState(null)
   const [history, setHistory] = useState([])
+  const [activeChallenge, setActiveChallenge] = useState(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => { load() }, [id])
@@ -41,6 +64,12 @@ export default function JugadorPerfil() {
         (c.challenger_id === id || c.challenged_id === id) && c.status === 'completed'
       ).sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
       setHistory(mine)
+      const active = ch.find(c =>
+        (c.challenger_id === id || c.challenged_id === id) &&
+        (c.status === 'pending' || c.status === 'accepted' ||
+         (c.status === 'completed' && c.ranking_applied === false))
+      )
+      setActiveChallenge(active || null)
     } finally { setLoading(false) }
   }
 
@@ -85,12 +114,49 @@ export default function JugadorPerfil() {
           <div style={{ fontSize: 12, color: '#888', marginTop: 1 }}>
             {wins.length}V {history.length - wins.length}D · {history.length} partidos
           </div>
-          {jugador.lesionado && (
-            <span className="badge badge-red" style={{ fontSize: 10, marginTop: 4, display: 'inline-block' }}>
-              Lesionado{jugador.lesion_nota ? ` — ${jugador.lesion_nota}` : ''}
-            </span>
-          )}
+          {(() => {
+            const lastPlayed = history[0]?.created_at
+            const inactTime = inactivityTime(jugador, lastPlayed)
+            return (
+              <>
+                {jugador.lesionado && (
+                  <span className="badge badge-red" style={{ fontSize: 10, marginTop: 4, display: 'inline-block' }}>
+                    Lesionado{inactTime ? ` (${inactTime})` : ''}{jugador.lesion_nota ? ` — ${jugador.lesion_nota}` : ''}
+                  </span>
+                )}
+                {!jugador.lesionado && inactTime && (
+                  <span style={{ fontSize: 10, marginTop: 4, display: 'inline-block', color: '#888', background: '#f0efe8', padding: '2px 8px', borderRadius: 6 }}>
+                    Inactividad ({inactTime})
+                  </span>
+                )}
+              </>
+            )
+          })()}
         </div>
+      </div>
+
+      {/* Estado actual de esta semana */}
+      <div className="card" style={{ marginBottom: 10 }}>
+        <div style={{ fontSize: 12, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>Esta semana</div>
+        {activeChallenge ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 16, height: 16, borderRadius: '50%', background: '#C5E635', color: '#fff', flexShrink: 0 }}>
+              <i className="ti ti-check" style={{ fontSize: 10 }} aria-hidden="true" />
+            </span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 500 }}>Tiene desafío activo</div>
+              <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>
+                vs {activeChallenge.challenger_id === id ? `${activeChallenge.challenged?.nombre} ${activeChallenge.challenged?.apellido}` : `${activeChallenge.challenger?.nombre} ${activeChallenge.challenger?.apellido}`}
+              </div>
+              <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>{statusText(activeChallenge)}</div>
+            </div>
+          </div>
+        ) : (
+          <div style={{ fontSize: 13, color: '#888' }}>
+            <i className="ti ti-calendar-off" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />
+            Sin partido agendado esta semana
+          </div>
+        )}
       </div>
 
       {/* Head to head — solo si no es el mismo jugador */}
