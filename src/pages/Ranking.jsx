@@ -167,7 +167,7 @@ export default function Ranking() {
               </div>
               <span style={{ flex: 1, fontSize: 13, cursor: 'pointer' }} onClick={() => navigate(`/jugador/${p.id}`)}>
                 {p.nombre} {p.apellido}
-                {targetHasActive && <span style={{ fontSize: 11, color: '#1D9E75', marginLeft: 4, fontWeight: 500 }}>✓</span>}
+                {targetHasActive && <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 18, height: 18, borderRadius: '50%', background: '#C5E635', color: '#3B6D11', fontSize: 11, marginLeft: 6, verticalAlign: 'middle', fontWeight: 500 }}><i className="ti ti-check" style={{ fontSize: 12 }} aria-hidden="true" /></span>}
                 {isMe && <span style={{ fontSize: 11, color: '#1D9E75', marginLeft: 4 }}>(tú)</span>}
                 {p.lesionado && <span className="badge badge-red" style={{ fontSize: 10, marginLeft: 4 }}>Lesionado{injuryBadge(p) ? ` (${injuryBadge(p)})` : ''}</span>}
                 {!p.lesionado && inactivityBadge(p) && <span style={{ fontSize: 10, marginLeft: 4, color: '#888', background: '#f0efe8', padding: '2px 6px', borderRadius: 6 }}>Inactividad ({inactivityBadge(p)})</span>}
