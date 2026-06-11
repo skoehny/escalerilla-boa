@@ -5,6 +5,35 @@ import { notifyChallengeSent } from '../lib/notify'
 import { useSession } from '../components/SessionContext'
 
 function ini(n, a) { return ((n?.[0] || '') + (a?.[0] || '')).toUpperCase() }
+function fmtShortDate(d) {
+  if (!d) return ''
+  try {
+    const dt = new Date(d + 'T12:00:00')
+    return `${String(dt.getDate()).padStart(2,'0')}/${String(dt.getMonth()+1).padStart(2,'0')}`
+  } catch { return d }
+}
+
+function inactivityBadge(p) {
+  const w = p.semanas_inactivo || 0
+  if (w < 1) return null
+  // Calcular días desde el último jueves
+  const today = new Date()
+  let lastThursday = new Date(today)
+  while (lastThursday.getDay() !== 4) lastThursday.setDate(lastThursday.getDate() - 1)
+  const days = Math.floor((today - lastThursday) / (1000 * 60 * 60 * 24))
+  return `${w}S ${days}D`
+}
+
+function injuryBadge(p) {
+  if (!p.lesionado || !p.lesion_fecha) return p.lesionado ? '0S 0D' : null
+  const start = new Date(p.lesion_fecha)
+  const now = new Date()
+  const diffDays = Math.floor((now - start) / (1000 * 60 * 60 * 24))
+  const weeks = Math.floor(diffDays / 7)
+  const days = diffDays % 7
+  return `${weeks}S ${days}D`
+}
+
 function trend(pos, prev) {
   if (!prev || pos === prev) return <span style={{ color: '#888', fontSize: 11 }}>—</span>
   const d = prev - pos
@@ -22,12 +51,14 @@ export default function Ranking() {
   const [challenges, setChallenges] = useState([])
   const [myStats, setMyStats] = useState({ wins: 0, losses: 0 })
   const [playedThisWeek, setPlayedThisWeek] = useState(false)
+  const [weekConfig, setWeekConfig] = useState(null)
 
   useEffect(() => { load() }, [])
 
   async function load() {
     try {
-      const [pl, ch] = await Promise.all([getPlayers(), getChallenges()])
+      const [pl, ch, { data: cfg }] = await Promise.all([getPlayers(), getChallenges(), supabase.from('weekly_config').select('*').eq('id', 1).single()])
+      setWeekConfig(cfg)
       setPlayers(pl)
       const active = ch.some(c =>
         (c.challenger_id === player?.id || c.challenged_id === player?.id) &&
@@ -84,8 +115,11 @@ export default function Ranking() {
       {notif && <div className={`notif notif-${notif.type}`}><i className={`ti ti-${notif.type === 'ok' ? 'check' : 'alert-triangle'}`} aria-hidden="true" /> {notif.msg}</div>}
 
       <div className="week-banner">
-        <span><i className="ti ti-calendar" style={{ fontSize: 13, verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Semana activa · cierre mié · actualización jueves</span>
-        <span className="badge badge-teal">1 partido disponible</span>
+        <span style={{ fontSize: 12 }}>
+          <i className="ti ti-calendar" style={{ fontSize: 13, verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />
+          Semana {weekConfig?.semana || '—'} · cierra mié {fmtShortDate(weekConfig?.fecha_cierre)} · próx. actualización jue {fmtShortDate(weekConfig?.fecha_ranking)} 11:59
+        </span>
+        {hasActive && <span className="badge badge-green" style={{ marginTop: 4 }}>✓ 1 desafío activo</span>}
       </div>
 
       <div className="stats-grid">
@@ -134,7 +168,8 @@ export default function Ranking() {
               <span style={{ flex: 1, fontSize: 13, cursor: 'pointer' }} onClick={() => navigate(`/jugador/${p.id}`)}>
                 {p.nombre} {p.apellido}
                 {isMe && <span style={{ fontSize: 11, color: '#1D9E75', marginLeft: 4 }}>(tú)</span>}
-                {p.lesionado && <span className="badge badge-red" style={{ fontSize: 10, marginLeft: 4 }}>lesionado</span>}
+                {p.lesionado && <span className="badge badge-red" style={{ fontSize: 10, marginLeft: 4 }}>Lesionado{injuryBadge(p) ? ` (${injuryBadge(p)})` : ''}</span>}
+                {!p.lesionado && inactivityBadge(p) && <span style={{ fontSize: 10, marginLeft: 4, color: '#888', background: '#f0efe8', padding: '2px 6px', borderRadius: 6 }}>Inactividad ({inactivityBadge(p)})</span>}
               </span>
               <span style={{ fontSize: 12, color: '#888' }}>{p.victorias || 0}V {p.derrotas || 0}D</span>
               <span style={{ width: 24, textAlign: 'center' }}>{trend(p.posicion, p.posicion_anterior)}</span>
@@ -159,7 +194,6 @@ export default function Ranking() {
           )
         })}
       </div>
-      {hasActive && <p style={{ fontSize: 12, color: '#888', textAlign: 'center' }}>Ya tienes un desafío activo esta semana</p>}
     </div>
   )
 }
