@@ -270,9 +270,9 @@ export default function Resultados() {
             return (
               <div key={c.id} className="card">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
-                  <span style={{ fontSize: 13, fontWeight: 500 }}>{c.challenger?.nombre} {c.challenger?.apellido}</span>
+                  <span style={{ fontSize: 13, fontWeight: 500 }}>{c.challenger?.nombre} {c.challenger?.apellido?.[0]}.</span>
                   <span style={{ color: '#888' }}>vs</span>
-                  <span style={{ fontSize: 13, fontWeight: 500 }}>{c.challenged?.nombre} {c.challenged?.apellido}</span>
+                  <span style={{ fontSize: 13, fontWeight: 500 }}>{c.challenged?.nombre} {c.challenged?.apellido?.[0]}.</span>
                   {c.slot_court && <span style={{ marginLeft: 'auto', fontSize: 11, color: '#888' }}>{c.slot_court} · {c.slot_hour}</span>}
                 </div>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
@@ -339,11 +339,11 @@ export default function Resultados() {
                 <div key={c.id}>
                   <div className="row-item">
                     <span style={{ flex: 1, fontSize: 13 }}>
-                      <span style={{ fontWeight: c.ganador === 'challenger' ? 500 : 400 }}>{c.challenger?.nombre}</span>
+                      <span style={{ fontWeight: c.ganador === 'challenger' ? 500 : 400 }}>{c.challenger?.nombre} {c.challenger?.apellido?.[0]}.</span>
                       <span style={{ color: '#888', fontSize: 12, margin: '0 5px' }}>
                         {c.score_a}–{c.score_b}{hasTB ? ` (${c.tiebreak_a}–${c.tiebreak_b})` : ''}{c.is_wo ? ' (WO)' : ''}
                       </span>
-                      <span style={{ fontWeight: c.ganador === 'challenged' ? 500 : 400 }}>{c.challenged?.nombre}</span>
+                      <span style={{ fontWeight: c.ganador === 'challenged' ? 500 : 400 }}>{c.challenged?.nombre} {c.challenged?.apellido?.[0]}.</span>
                     </span>
                     {c.resultado_validado && <span className="badge badge-green" style={{ fontSize: 10, flexShrink: 0 }}>✓</span>}
                     <span className="badge badge-green" style={{ flexShrink: 0 }}>{w?.nombre}</span>
