@@ -142,17 +142,19 @@ export default function Admin() {
       originalPos[x.id] < originalPos[p.id] && !x.lesionado && !busy.has(x.id)
     ).length === 0
 
-    // Castigo: 1ª semana inactivo = -2; cada semana adicional = -1. Aplica igual a lesionados.
+    // Castigo: 2 semanas inactivo = -2; cada semana adicional = -1. Aplica igual a lesionados.
     const penMap = {}
     const penaltyLog = []
     for (const p of active) {
       const ref = lastPlayedBy[p.id] || p.ultima_fecha_jugada || p.created_at
       if (!ref) continue
       const weeks = Math.floor((new Date() - new Date(ref)) / (7 * 24 * 60 * 60 * 1000))
-      if (weeks < 1) continue
+      if (weeks < 2) continue
       if (intentToPlay(p.id)) continue
-      if (sinRivales(p)) continue
-      penMap[p.id] = weeks === 1 ? 2 : 1
+      // Exención B solo la 1ª semana penalizable (gracia): evita el -2 cuando no hay rivales,
+      // pero después cae el -1 igual — nadie acampa, ni el #1
+      if (weeks === 2 && sinRivales(p)) continue
+      penMap[p.id] = weeks === 2 ? 2 : 1
       penaltyLog.push(`${p.nombre} ${p.apellido} (-${penMap[p.id]})`)
     }
 
