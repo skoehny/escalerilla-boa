@@ -321,12 +321,7 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
     const cdBusy = challenges.some(c => (c.challenger_id === m.challenged_id || c.challenged_id === m.challenged_id) && (c.status === 'pending' || c.status === 'accepted' || (c.status === 'completed' && !c.ranking_applied)))
     if (chBusy) { ntf(`${ch?.nombre} ya tiene un desafío esta semana.`, 'err'); return }
     if (cdBusy) { ntf(`${cd?.nombre} ya tiene un desafío esta semana.`, 'err'); return }
-    const m = newChallengeModal
-    if (!m.challenger_id || !m.challenged_id) { ntf('Selecciona ambos jugadores', 'err'); return }
-    if (m.challenger_id === m.challenged_id) { ntf('No pueden ser el mismo jugador', 'err'); return }
-    const challengerP = players.find(p => p.id === m.challenger_id)
-    const challengedP = players.find(p => p.id === m.challenged_id)
-    if (challengerP && challengedP && challengerP.posicion && challengedP.posicion && challengerP.posicion <= challengedP.posicion) {
+    if (ch && cd && ch.posicion && cd.posicion && ch.posicion <= cd.posicion) {
       ntf('El desafiante debe estar en posición inferior al desafiado.', 'err'); return
     }
     try {
