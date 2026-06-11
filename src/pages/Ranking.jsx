@@ -119,7 +119,7 @@ export default function Ranking() {
           <i className="ti ti-calendar" style={{ fontSize: 13, verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />
           Semana {weekConfig?.semana || '—'} · cierra mié {fmtShortDate(weekConfig?.fecha_cierre)} · próx. actualización jue {fmtShortDate(weekConfig?.fecha_ranking)} 11:59
         </span>
-        {hasActive && <span className="badge badge-green" style={{ marginTop: 4 }}>✓ Ya tienes un desafío activo</span>}
+        {hasActive && <span style={{ marginTop: 4, display: 'inline-flex', alignItems: 'center', gap: 6 }}><span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 14, height: 14, borderRadius: '50%', background: '#C5E635', color: '#fff' }}><i className="ti ti-check" style={{ fontSize: 9 }} aria-hidden="true" /></span><span style={{ fontSize: 12, color: '#0F6E56', fontWeight: 500 }}>Ya tienes un desafío activo</span></span>}
       </div>
 
       <div className="stats-grid">
@@ -143,7 +143,7 @@ export default function Ranking() {
 
         {players.map(p => {
           const isMe = p.id === player?.id
-          const numColor = p.posicion === 1 ? '#BA7517' : p.posicion === 2 ? '#888780' : p.posicion === 3 ? '#D85A30' : '#888'
+          const numColor = p.posicion <= 3 ? '#D85A30' : '#888'
           const targetHasActive = challenges.some(c =>
             (c.challenger_id === p.id || c.challenged_id === p.id) &&
             (c.status === 'pending' || c.status === 'accepted' ||
@@ -167,7 +167,7 @@ export default function Ranking() {
               </div>
               <span style={{ flex: 1, fontSize: 13, cursor: 'pointer' }} onClick={() => navigate(`/jugador/${p.id}`)}>
                 {p.nombre} {p.apellido}
-                {targetHasActive && <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 18, height: 18, borderRadius: '50%', background: '#C5E635', color: '#3B6D11', fontSize: 11, marginLeft: 6, verticalAlign: 'middle', fontWeight: 500 }}><i className="ti ti-check" style={{ fontSize: 12 }} aria-hidden="true" /></span>}
+                {targetHasActive && <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 14, height: 14, borderRadius: '50%', background: '#C5E635', color: '#fff', marginLeft: 6, verticalAlign: 'middle' }}><i className="ti ti-check" style={{ fontSize: 9 }} aria-hidden="true" /></span>}
                 {isMe && <span style={{ fontSize: 11, color: '#1D9E75', marginLeft: 4 }}>(tú)</span>}
                 {p.lesionado && <span className="badge badge-red" style={{ fontSize: 10, marginLeft: 4 }}>Lesionado{injuryBadge(p) ? ` (${injuryBadge(p)})` : ''}</span>}
                 {!p.lesionado && inactivityBadge(p) && <span style={{ fontSize: 10, marginLeft: 4, color: '#888', background: '#f0efe8', padding: '2px 6px', borderRadius: 6 }}>Inactividad ({inactivityBadge(p)})</span>}
