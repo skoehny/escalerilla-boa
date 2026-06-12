@@ -30,7 +30,9 @@ export default function Auth() {
   async function handlePhone(e) {
     e.preventDefault()
     setError('')
-    const t = tel.replace(/\s/g, '').replace('+56', '').replace('56', '')
+    // Solo dígitos; quitar prefijo país 56 únicamente si viene al inicio (11 dígitos)
+    let t = tel.replace(/\D/g, '')
+    if (t.length === 11 && t.startsWith('56')) t = t.slice(2)
     if (!/^9\d{8}$/.test(t)) { setError('Ingresa 9 dígitos válidos (ej: 9 1234 5678)'); return }
     setLoading(true)
     try {
