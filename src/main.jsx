@@ -13,6 +13,7 @@ import Perfil      from './pages/Perfil'
 import JugadorPerfil from './pages/JugadorPerfil'
 import Reglamento  from './pages/Reglamento'
 import Layout      from './components/Layout'
+import AutoRefresh from './components/AutoRefresh'
 import { SessionProvider, useSession } from './components/SessionContext'
 
 function ProtectedRoute({ children }) {
@@ -51,6 +52,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <BrowserRouter>
       <SessionProvider>
+        <AutoRefresh />
         <AppRoutes />
       </SessionProvider>
     </BrowserRouter>
