@@ -60,6 +60,7 @@ export default function Admin() {
   const [newPlayerModal, setNewPlayerModal] = useState(null)
   const [confirmPublish, setConfirmPublish] = useState(false)
   const [publishPreview, setPublishPreview] = useState(null) // plan calculado antes de publicar
+  const [inviteShare, setInviteShare] = useState(null) // invitación pendiente de enviar por WA
   const [publishPin, setPublishPin] = useState('')
   const [pinModal, setPinModal] = useState(null) // { action: fn }
   const [pinInput, setPinInput] = useState('')
@@ -402,9 +403,10 @@ Hola ${p.nombre}, te invitamos a unirte a la Escalerilla BOA.
 Ingresa en: https://escalerilla-boa.vercel.app
 
 Usa tu número de WhatsApp para registrarte y completar tu perfil.`
-      if (navigator.share) { navigator.share({ text: msg }) } else { navigator.clipboard.writeText(msg); ntf('Jugador agregado. Invitación copiada.') }
       setNewPlayerModal(null)
-      ntf(`${p.nombre} ${p.apellido} agregado en #${lastPos}.`)
+      // navigator.share debe llamarse directo desde un toque del usuario (iOS);
+      // tras el await del insert el permiso expira, así que mostramos un botón dedicado
+      setInviteShare({ nombre: `${p.nombre.trim()} ${p.apellido.trim()}`, pos: lastPos, msg })
       load()
     } catch (err) { ntf(err.message || 'Error al agregar jugador', 'err') }
   }
@@ -1244,6 +1246,41 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
                 confirmWithPin(() => publishRanking(plan))
               }}>Confirmar y publicar</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Invitación lista para enviar */}
+      {inviteShare && (
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setInviteShare(null) }}>
+          <div className="modal">
+            <h3>Jugador agregado ✓</h3>
+            <p style={{ fontSize: 13, color: '#555', marginBottom: 14 }}>
+              <strong>{inviteShare.nombre}</strong> quedó en la posición <strong>#{inviteShare.pos}</strong>. Ahora envíale la invitación:
+            </p>
+            <button className="btn btn-accept btn-block" style={{ marginBottom: 8 }} onClick={() => {
+              if (navigator.share) {
+                navigator.share({ text: inviteShare.msg }).catch(() => {})
+              } else {
+                navigator.clipboard.writeText(inviteShare.msg)
+                ntf('Invitación copiada al portapapeles.')
+              }
+              setInviteShare(null)
+            }}>
+              <i className="ti ti-brand-whatsapp" style={{ verticalAlign: -2, marginRight: 5 }} aria-hidden="true" />
+              Enviar invitación por WhatsApp
+            </button>
+            <button className="btn btn-block" onClick={() => {
+              navigator.clipboard.writeText(inviteShare.msg)
+              ntf('Invitación copiada al portapapeles.')
+              setInviteShare(null)
+            }}>
+              <i className="ti ti-copy" style={{ verticalAlign: -2, marginRight: 5 }} aria-hidden="true" />
+              Copiar mensaje
+            </button>
+            <button className="btn btn-block" style={{ marginTop: 6, color: '#888' }} onClick={() => setInviteShare(null)}>
+              Omitir
+            </button>
           </div>
         </div>
       )}
