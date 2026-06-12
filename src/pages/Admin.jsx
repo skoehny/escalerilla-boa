@@ -59,6 +59,7 @@ export default function Admin() {
   const [newChallengeModal, setNewChallengeModal] = useState(null)
   const [newPlayerModal, setNewPlayerModal] = useState(null)
   const [confirmPublish, setConfirmPublish] = useState(false)
+  const [publishPreview, setPublishPreview] = useState(null) // plan calculado antes de publicar
   const [publishPin, setPublishPin] = useState('')
   const [pinModal, setPinModal] = useState(null) // { action: fn }
   const [pinInput, setPinInput] = useState('')
@@ -100,14 +101,21 @@ export default function Admin() {
     action()
   }
 
-  async function publishRanking() {
+  // Calcula el plan de publicación SIN tocar la BD: posiciones nuevas + explicación de cada movimiento
+  async function computePublishPlan() {
     const { data: cfg } = await supabase.from('weekly_config').select('*').eq('id', 1).single()
-    const active = players.filter(p => p.activo && p.posicion != null).sort((a, b) => a.posicion - b.posicion)
+    // Copia de trabajo para no mutar el estado
+    const sim = players.filter(p => p.activo && p.posicion != null)
+      .sort((a, b) => a.posicion - b.posicion)
+      .map(p => ({ ...p }))
     const originalPos = {}
-    active.forEach(p => { originalPos[p.id] = p.posicion })
+    sim.forEach(p => { originalPos[p.id] = p.posicion })
+    const nm = p => `${p.nombre} ${p.apellido}`
+    const reasons = {}   // id -> [explicaciones]
+    const addReason = (id, txt) => { (reasons[id] = reasons[id] || []).push(txt) }
+    const notas = []     // info adicional (exenciones, defensas)
 
     // ── PASO 1: Penalizaciones por inactividad (ANTES de los resultados) ──
-    // Última fecha jugada real: derivada de partidos completados (fuente de verdad)
     const lastPlayedBy = {}
     challenges.forEach(c => {
       if (c.status !== 'completed') return
@@ -118,9 +126,7 @@ export default function Admin() {
       })
     })
 
-    // Exención A: intención de jugar — tuvo algún desafío esta semana
-    // (activo ahora, jugado pendiente de aplicar, o creado dentro de la semana aunque
-    //  haya sido rechazado/cancelado/expirado — la intención cuenta)
+    // Exención A: intención de jugar — tuvo algún desafío esta semana (cualquier estado)
     const weekStart = cfg?.fecha_inicio ? new Date(cfg.fecha_inicio + 'T00:00:00') : null
     const intentToPlay = pid => challenges.some(c =>
       (c.challenger_id === pid || c.challenged_id === pid) && (
@@ -130,7 +136,7 @@ export default function Admin() {
       )
     )
 
-    // Exención B: sin rivales disponibles arriba (todos lesionados u ocupados en desafío)
+    // Exención B: sin rivales disponibles arriba
     const busy = new Set()
     challenges.forEach(c => {
       if (c.status === 'pending' || c.status === 'accepted' || (c.status === 'completed' && !c.ranking_applied)) {
@@ -138,29 +144,33 @@ export default function Admin() {
         busy.add(c.challenged_id)
       }
     })
-    const sinRivales = p => active.filter(x =>
+    const sinRivales = p => sim.filter(x =>
       originalPos[x.id] < originalPos[p.id] && !x.lesionado && !busy.has(x.id)
     ).length === 0
 
     // Castigo: 2 semanas inactivo = -2; cada semana adicional = -1. Aplica igual a lesionados.
     const penMap = {}
     const penaltyLog = []
-    for (const p of active) {
+    for (const p of sim) {
       const ref = lastPlayedBy[p.id] || p.ultima_fecha_jugada || p.created_at
       if (!ref) continue
       const weeks = Math.floor((new Date() - new Date(ref)) / (7 * 24 * 60 * 60 * 1000))
       if (weeks < 2) continue
-      if (intentToPlay(p.id)) continue
-      // Exención B solo la 1ª semana penalizable (gracia): evita el -2 cuando no hay rivales,
-      // pero después cae el -1 igual — nadie acampa, ni el #1
-      if (weeks === 2 && sinRivales(p)) continue
+      if (intentToPlay(p.id)) {
+        notas.push(`${nm(p)} lleva ${weeks} semanas sin jugar pero queda exento: tuvo desafío esta semana.`)
+        continue
+      }
+      if (weeks === 2 && sinRivales(p)) {
+        notas.push(`${nm(p)} queda exento (semana de gracia): no tenía rivales disponibles arriba.`)
+        continue
+      }
       penMap[p.id] = weeks === 2 ? 2 : 1
-      penaltyLog.push(`${p.nombre} ${p.apellido} (-${penMap[p.id]})`)
+      penaltyLog.push(`${nm(p)} (-${penMap[p.id]})`)
+      addReason(p.id, `penalización por inactividad: ${weeks} semanas sin jugar (-${penMap[p.id]})${p.lesionado ? ' [lesionado]' : ''}`)
     }
 
-    // Reordenar: penalizado apunta a (posición + castigo). Los no penalizados tienen
-    // prioridad en caso de empate y suben llenando los huecos en su orden original.
-    active.sort((a, b) => {
+    // Reordenar: penalizado apunta a (posición + castigo); no penalizados suben llenando huecos
+    sim.sort((a, b) => {
       const ka = originalPos[a.id] + (penMap[a.id] || 0)
       const kb = originalPos[b.id] + (penMap[b.id] || 0)
       if (ka !== kb) return ka - kb
@@ -168,33 +178,61 @@ export default function Admin() {
       if (pa !== pb) return pa - pb
       return originalPos[a.id] - originalPos[b.id]
     })
-    active.forEach((p, i) => { p.posicion = i + 1 })
+    sim.forEach((p, i) => {
+      if (!penMap[p.id] && (i + 1) < originalPos[p.id]) {
+        addReason(p.id, 'sube por penalizaciones de jugadores más arriba')
+      }
+      p.posicion = i + 1
+    })
 
     // ── PASO 2: Resultados de partidos (sobre el ranking ya penalizado) ──
     const pending = challenges
       .filter(c => c.status === 'completed' && !c.ranking_applied)
       .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
     for (const c of pending) {
-      const ch = active.find(p => p.id === c.challenger_id)
-      const cd = active.find(p => p.id === c.challenged_id)
+      const ch = sim.find(p => p.id === c.challenger_id)
+      const cd = sim.find(p => p.id === c.challenged_id)
       if (!ch || !cd) continue
       if (c.ganador === 'challenger' && ch.posicion > cd.posicion) {
         const wp = ch.posicion, lp = cd.posicion
-        for (const p of active) {
-          if (p.posicion >= lp && p.posicion < wp) p.posicion += 1
+        for (const p of sim) {
+          if (p.posicion >= lp && p.posicion < wp) {
+            p.posicion += 1
+            addReason(p.id, `desplazado por el ascenso de ${nm(ch)}`)
+          }
         }
         ch.posicion = lp
+        addReason(ch.id, `le ganó a ${nm(cd)} (${c.score_a}–${c.score_b}${c.is_wo ? ' WO' : ''}) y toma el puesto #${lp}`)
+      } else if (c.ganador === 'challenged') {
+        notas.push(`${nm(cd)} defendió su posición #${cd.posicion} ante ${nm(ch)} (${c.score_a}–${c.score_b}${c.is_wo ? ' WO' : ''}) — sin cambios.`)
       }
-      // Desafiado gana — no mueve ranking
     }
-    active.sort((a, b) => a.posicion - b.posicion)
+    sim.sort((a, b) => a.posicion - b.posicion)
 
-    // ── PASO 3: Persistir todo de una vez ──
-    await Promise.all(active.map(p => updatePlayer(p.id, { posicion: p.posicion, posicion_anterior: p.posicion })))
+    // Movimientos netos con explicación
+    const movements = sim
+      .filter(p => p.posicion !== originalPos[p.id])
+      .map(p => ({
+        nombre: nm(p),
+        desde: originalPos[p.id],
+        hasta: p.posicion,
+        delta: originalPos[p.id] - p.posicion, // >0 sube, <0 baja
+        motivo: (reasons[p.id] || ['movimiento por reacomodo']).join(' + ')
+      }))
+      .sort((a, b) => a.hasta - b.hasta)
+
+    return { cfg, sim, originalPos, pending, penaltyLog, movements, notas }
+  }
+
+  async function publishRanking(plan) {
+    const { cfg, sim, originalPos, pending, penaltyLog } = plan
+
+    // ── Persistir todo de una vez ──
+    await Promise.all(sim.map(p => updatePlayer(p.id, { posicion: p.posicion, posicion_anterior: p.posicion })))
     await Promise.all(pending.map(c => updateChallenge(c.id, { ranking_applied: true })))
 
     // Snapshot (posicion_anterior = posición ANTES de publicar, para poder deshacer)
-    const refreshed = active
+    const refreshed = sim
     await supabase.from('ranking_snapshots').insert({ data: refreshed.map(p => ({ player_id: p.id, posicion: p.posicion, posicion_anterior: originalPos[p.id] })), applied_challenge_ids: pending.map(c => c.id) })
     // Upsert para sobreescribir si ya existe esa semana
     await supabase.from('ranking_history').upsert({
@@ -602,12 +640,13 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
       {activeTab === 'acciones' && (
         <div>
           <div className="card" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', padding: '10px 12px' }}>
-            <button className="btn btn-accept" onClick={() => {
+            <button className="btn btn-accept" onClick={async () => {
               const day = new Date().getDay()
               if (day !== 4) {
                 if (!confirm('⚠️ La publicación normalmente se hace los JUEVES. ¿Estás seguro de publicar hoy?')) return
               }
-              confirmWithPin(publishRanking)
+              const plan = await computePublishPlan()
+              setPublishPreview(plan)
             }}><i className="ti ti-trophy" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Publicar ranking</button>
             {snapshots.length > 0 && <button className="btn btn-warn" onClick={undoRanking}><i className="ti ti-arrow-back" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Deshacer ranking</button>}
             <button className="btn btn-warn" onClick={sendReminder}><i className="ti ti-bell" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Recordatorio</button>
@@ -1142,6 +1181,68 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
             <div className="modal-actions">
               <button className="btn" onClick={() => setNewChallengeModal(null)}>Cancelar</button>
               <button className="btn btn-accept" onClick={createChallengeAdmin}>Crear</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Vista previa de publicación */}
+      {publishPreview && (
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setPublishPreview(null) }}>
+          <div className="modal" style={{ maxHeight: '80vh', overflowY: 'auto' }}>
+            <h3>Vista previa — Semana {publishPreview.cfg?.semana || '—'}</h3>
+            <p style={{ fontSize: 12, color: '#888', marginBottom: 12 }}>
+              Revisa los movimientos antes de publicar. Nada se aplica hasta que confirmes con tu PIN.
+            </p>
+
+            {publishPreview.movements.length === 0 ? (
+              <div style={{ fontSize: 13, color: '#888', background: '#f5f4f0', borderRadius: 8, padding: '10px 12px', marginBottom: 10 }}>
+                Sin cambios de posiciones esta semana.
+              </div>
+            ) : (
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 12, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>
+                  Movimientos ({publishPreview.movements.length})
+                </div>
+                {publishPreview.movements.map((m, i) => (
+                  <div key={i} style={{ display: 'flex', gap: 8, padding: '7px 0', borderBottom: '0.5px solid #eee', alignItems: 'flex-start' }}>
+                    <span style={{ fontSize: 12, fontWeight: 500, color: m.delta > 0 ? '#3B6D11' : '#A32D2D', flexShrink: 0, width: 30 }}>
+                      {m.delta > 0 ? `↑${m.delta}` : `↓${Math.abs(m.delta)}`}
+                    </span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 500 }}>{m.nombre} <span style={{ color: '#888', fontWeight: 400 }}>#{m.desde} → #{m.hasta}</span></div>
+                      <div style={{ fontSize: 12, color: '#888', marginTop: 1 }}>{m.motivo}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {publishPreview.notas.length > 0 && (
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 12, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>
+                  Notas
+                </div>
+                {publishPreview.notas.map((n, i) => (
+                  <div key={i} style={{ fontSize: 12, color: '#666', padding: '4px 0', display: 'flex', gap: 6 }}>
+                    <i className="ti ti-info-circle" style={{ fontSize: 14, flexShrink: 0, marginTop: 1, color: '#888' }} aria-hidden="true" />
+                    <span>{n}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div style={{ fontSize: 11, color: '#888', marginBottom: 12 }}>
+              {publishPreview.pending.length} partido{publishPreview.pending.length !== 1 ? 's' : ''} por aplicar · {publishPreview.penaltyLog.length} penalización{publishPreview.penaltyLog.length !== 1 ? 'es' : ''} por inactividad
+            </div>
+
+            <div className="modal-actions">
+              <button className="btn" onClick={() => setPublishPreview(null)}>Cancelar</button>
+              <button className="btn btn-accept" onClick={() => {
+                const plan = publishPreview
+                setPublishPreview(null)
+                confirmWithPin(() => publishRanking(plan))
+              }}>Confirmar y publicar</button>
             </div>
           </div>
         </div>
