@@ -58,6 +58,10 @@ export default function Desafios() {
         const d = new Date(slotDay + 'T12:00:00')
         slotDay = d.toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' })
       }
+      const ch = challenges.find(x => x.id === m.id)
+      const slotStatus = ch?.pago_confirmado ? 'confirmed' : 'reserved'
+      // Liberar bloques anteriores (si es edición de una reserva existente)
+      await supabase.from('slots').delete().eq('challenge_id', m.id)
       await updateChallenge(m.id, { slot_court: m.court, slot_day: slotDay, slot_hour: m.hour })
       // Block 3 slots in courts table
       const addMins = (h, mins) => {
@@ -66,10 +70,10 @@ export default function Desafios() {
         return `${String(Math.floor(total/60)).padStart(2,'0')}:${String(total%60).padStart(2,'0')}`
       }
       for (const mins of [0, 30, 60]) {
-        await supabase.from('slots').upsert({ court_id: m.court, dia: slotDay, hora: addMins(m.hour, mins), reserved_by: player.id, status: 'reserved', challenge_id: m.id })
+        await supabase.from('slots').upsert({ court_id: m.court, dia: slotDay, hora: addMins(m.hour, mins), reserved_by: player.id, status: slotStatus, challenge_id: m.id })
       }
       setSlotModal(null)
-      ntf('Cancha asignada.')
+      ntf(m.editing ? 'Reserva actualizada.' : 'Cancha asignada.')
       load()
     } catch (err) { ntf(err.message, 'err') }
   }
@@ -301,14 +305,27 @@ export default function Desafios() {
 
             {stepOf(myActive) >= 2 && myActive.slot_court && (
               <div style={{ background: '#f5f4f0', borderRadius: 8, padding: '9px 12px', marginTop: 6 }}>
-                <div style={{ fontSize: 13, fontWeight: 500 }}>
-                  {myActive.slot_court} · {myActive.slot_day} · {myActive.slot_hour}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 500 }}>
+                      {myActive.slot_court} · {myActive.slot_day} · {myActive.slot_hour}
+                    </div>
+                    <div style={{ fontSize: 12, color: myActive.pago_confirmado ? '#3B6D11' : '#888', marginTop: 2 }}>
+                      {myActive.pago_confirmado
+                        ? <><i className="ti ti-check" aria-hidden="true" style={{ marginRight: 3 }} />Pago confirmado — listo para jugar</>
+                        : 'Pago pendiente — el admin validará en breve'}
+                    </div>
+                  </div>
+                  <button className="btn" style={{ fontSize: 12, padding: '4px 10px', flexShrink: 0 }}
+                    onClick={() => setSlotModal({ id: myActive.id, court: myActive.slot_court, day: '', hour: myActive.slot_hour, editing: true })}>
+                    <i className="ti ti-pencil" style={{ verticalAlign: -2, marginRight: 3 }} aria-hidden="true" />Editar
+                  </button>
                 </div>
-                <div style={{ fontSize: 12, color: myActive.pago_confirmado ? '#3B6D11' : '#888', marginTop: 2 }}>
-                  {myActive.pago_confirmado
-                    ? <><i className="ti ti-check" aria-hidden="true" style={{ marginRight: 3 }} />Pago confirmado — listo para jugar</>
-                    : 'Pago pendiente — el admin validará en breve'}
-                </div>
+                {myActive.pago_confirmado && (
+                  <div style={{ fontSize: 11, color: '#888', marginTop: 6 }}>
+                    Si cambias la reserva, avisa a tu rival por WhatsApp.
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -331,7 +348,10 @@ export default function Desafios() {
                   {c.challenged?.nombre} {c.challenged?.apellido}
                 </span>
                 <span className={`badge ${bCls[step] || 'badge-gray'}`}>{labels[step] || ''}</span>
-                {c.deadline && <span style={{ fontSize: 11, color: '#888', marginLeft: 8 }}>{fmtDate(c.deadline)}</span>}
+                {c.slot_day
+                  ? <span style={{ fontSize: 11, color: '#888', marginLeft: 8 }}>{c.slot_day}{c.slot_hour ? ` · ${c.slot_hour}` : ''}</span>
+                  : c.deadline && <span style={{ fontSize: 11, color: '#A32D2D', marginLeft: 8 }}>vence {fmtDate(c.deadline)}</span>
+                }
               </div>
             )
           })
@@ -363,6 +383,32 @@ export default function Desafios() {
         </div>
       )}
 
+      {/* Modal editar reserva (jugador) */}
+      {slotModal && (
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setSlotModal(null) }}>
+          <div className="modal">
+            <h3>{slotModal.editing ? 'Editar reserva' : 'Reservar cancha'}</h3>
+            <div className="form-row"><label>Cancha</label>
+              <select value={slotModal.court} onChange={e => setSlotModal(m => ({ ...m, court: e.target.value }))}>
+                {courts.map(c => <option key={c.id} value={c.id}>{c.nombre} ({c.surface})</option>)}
+              </select>
+            </div>
+            <div className="form-row"><label>Día</label>
+              <input type="date" value={slotModal.day} onChange={e => setSlotModal(m => ({ ...m, day: e.target.value }))} />
+            </div>
+            <div className="form-row"><label>Hora inicio</label>
+              <select value={slotModal.hour} onChange={e => setSlotModal(m => ({ ...m, hour: e.target.value }))}>
+                {HOURS.map(h => <option key={h} value={h}>{h}</option>)}
+              </select>
+            </div>
+            <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>Se reservarán 3 bloques de 30 min (1.5 horas){slotModal.editing ? ' y se liberará la reserva anterior' : ''}</div>
+            <div className="modal-actions">
+              <button className="btn" onClick={() => setSlotModal(null)}>Cancelar</button>
+              <button className="btn btn-accept" onClick={assignSlot}>{slotModal.editing ? 'Guardar cambios' : 'Reservar'}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   )
