@@ -28,7 +28,7 @@ export default function Layout() {
 
   return (
     <div style={{ minHeight: '100vh', background: '#f5f4f0' }}>
-      <div style={{ background: '#fff', borderBottom: '0.5px solid #e0dfd8', position: 'sticky', top: 0, zIndex: 50 }}>
+      <div style={{ background: '#fff', borderBottom: '0.5px solid #e0dfd8', position: 'sticky', top: 0, zIndex: 50, paddingTop: 'env(safe-area-inset-top)' }}>
 
         {/* Fila 1: Logo + Perfil */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 14px', height: 46 }}>
