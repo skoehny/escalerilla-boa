@@ -37,6 +37,7 @@ export default function Desafios() {
   const [loading, setLoading] = useState(true)
   const [notif, setNotif] = useState(null)
   const [slotModal, setSlotModal] = useState(null)
+  const [slotError, setSlotError] = useState('')
   const isAdminCanchas = player?.es_admin_canchas
 
   useEffect(() => { load() }, [])
@@ -51,7 +52,7 @@ export default function Desafios() {
 
   async function assignSlot() {
     const m = slotModal
-    if (!m.court || !m.day || !m.hour) { ntf('Completa cancha, día y hora.', 'err'); return }
+    if (!m.court || !m.day || !m.hour) { setSlotError('Completa cancha, día y hora.'); return }
     try {
       let slotDay = m.day
       if (slotDay.includes('-') && slotDay.length === 10) {
@@ -385,25 +386,26 @@ export default function Desafios() {
 
       {/* Modal editar reserva (jugador) */}
       {slotModal && (
-        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setSlotModal(null) }}>
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) { setSlotModal(null); setSlotError('') } }}>
           <div className="modal">
             <h3>{slotModal.editing ? 'Editar reserva' : 'Reservar cancha'}</h3>
+            {slotError && <div className="notif notif-err" style={{ marginBottom: 10 }}>{slotError}</div>}
             <div className="form-row"><label>Cancha</label>
-              <select value={slotModal.court} onChange={e => setSlotModal(m => ({ ...m, court: e.target.value }))}>
+              <select value={slotModal.court} onChange={e => { setSlotModal(m => ({ ...m, court: e.target.value })); setSlotError('') }}>
                 {courts.map(c => <option key={c.id} value={c.id}>{c.nombre} ({c.surface})</option>)}
               </select>
             </div>
             <div className="form-row"><label>Día</label>
-              <input type="date" value={slotModal.day} onChange={e => setSlotModal(m => ({ ...m, day: e.target.value }))} />
+              <input type="date" value={slotModal.day} onChange={e => { setSlotModal(m => ({ ...m, day: e.target.value })); setSlotError('') }} />
             </div>
             <div className="form-row"><label>Hora inicio</label>
-              <select value={slotModal.hour} onChange={e => setSlotModal(m => ({ ...m, hour: e.target.value }))}>
+              <select value={slotModal.hour} onChange={e => { setSlotModal(m => ({ ...m, hour: e.target.value })); setSlotError('') }}>
                 {HOURS.map(h => <option key={h} value={h}>{h}</option>)}
               </select>
             </div>
             <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>Se reservarán 3 bloques de 30 min (1.5 horas){slotModal.editing ? ' y se liberará la reserva anterior' : ''}</div>
             <div className="modal-actions">
-              <button className="btn" onClick={() => setSlotModal(null)}>Cancelar</button>
+              <button className="btn" onClick={() => { setSlotModal(null); setSlotError('') }}>Cancelar</button>
               <button className="btn btn-accept" onClick={assignSlot}>{slotModal.editing ? 'Guardar cambios' : 'Reservar'}</button>
             </div>
           </div>

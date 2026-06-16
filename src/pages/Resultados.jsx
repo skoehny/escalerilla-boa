@@ -38,6 +38,7 @@ export default function Resultados() {
   const [players, setPlayers] = useState([])
   const [scores, setScores] = useState({})
   const [tiebreaks, setTiebreaks] = useState({})
+  const [slotInfo, setSlotInfo] = useState({}) // cancha/fecha/hora inline al anotar resultado
   const [editScores, setEditScores] = useState({})
   const [editTiebreaks, setEditTiebreaks] = useState({})
   const [editingId, setEditingId] = useState(null)
@@ -60,13 +61,13 @@ export default function Resultados() {
 
   function ntf(msg, type = 'ok') { setNotif({ msg, type }); setTimeout(() => setNotif(null), 4000) }
 
-  // Partido listo para anotar: aceptado, cancha y pago confirmado
-  // El jugador puede anotar si es parte del partido
+  // Partido listo para anotar: aceptado y es parte del partido
+  // No requiere que haya pasado la hora ni que el pago esté confirmado
+  // Pero saveResult exigirá cancha + fecha + hora + score antes de guardar
   function canReport(c) {
     if (c.status !== 'accepted') return false
-    if (!c.pago_confirmado) return false
     if (!(c.challenger_id === player?.id || c.challenged_id === player?.id)) return false
-    return hasMatchStarted(c)
+    return true
   }
 
   function isMyMatch(c) {
@@ -110,6 +111,23 @@ export default function Resultados() {
     } catch (err) { ntf(err.message, 'err') }
   }
 
+  async function cancelResult(c) {
+    if (!window.confirm('¿Cancelar el resultado? El partido vuelve a "jugando" y podrán ingresar el resultado de nuevo.')) return
+    try {
+      await updateChallenge(c.id, {
+        status: 'accepted',
+        score_a: null, score_b: null,
+        tiebreak_a: null, tiebreak_b: null,
+        ganador: null, is_wo: false,
+        resultado_validado: false,
+        anotado_por: null, validado_por: null,
+        ranking_applied: false,
+      })
+      ntf('Resultado cancelado. El partido volvió a estado activo.')
+      load()
+    } catch (err) { ntf(err.message, 'err') }
+  }
+
   async function saveEdit(c) {
     const sa = parseInt(editScores[c.id + "_a"] ?? c.score_a)
     const sb = parseInt(editScores[c.id + "_b"] ?? c.score_b)
@@ -140,10 +158,19 @@ export default function Resultados() {
     if (isNaN(sa) || isNaN(sb)) { ntf('Ingresa los games de ambos.', 'err'); return }
     if (sa < 0 || sb < 0 || sa > 9 || sb > 9) { ntf('Games entre 0 y 9.', 'err'); return }
     if (sa === sb) { ntf('No puede terminar empatado.', 'err'); return }
-    if (!c.slot_court) { ntf('El partido debe tener cancha asignada.', 'err'); return }
-    if (!c.slot_day) { ntf('El partido debe tener fecha asignada.', 'err'); return }
-    if (!c.slot_hour) { ntf('El partido debe tener hora asignada.', 'err'); return }
-    if (!c.pago_confirmado) { ntf('El pago debe estar confirmado antes de anotar el resultado.', 'err'); return }
+    if (!c.slot_court) { ntf('Debes indicar la cancha donde jugaron.', 'err'); return }
+    if (!c.slot_day) { ntf('Debes indicar la fecha del partido.', 'err'); return }
+    if (!c.slot_hour) { ntf('Debes indicar la hora del partido.', 'err'); return }
+
+    // Si el slot vino del formulario inline (no estaba en BD), guardarlo primero
+    const inlineSlot = slotInfo[c.id]
+    if (inlineSlot?.court || inlineSlot?.day || inlineSlot?.hour) {
+      await updateChallenge(c.id, {
+        slot_court: c.slot_court,
+        slot_day: c.slot_day,
+        slot_hour: c.slot_hour,
+      })
+    }
 
     // Tiebreak si 9-8 o 8-9
     const isTB = (sa === 9 && sb === 8) || (sa === 8 && sb === 9)
@@ -275,6 +302,48 @@ export default function Resultados() {
                   <span style={{ fontSize: 13, fontWeight: 500 }}>{c.challenged?.nombre} {c.challenged?.apellido?.[0]}.</span>
                   {c.slot_court && <span style={{ marginLeft: 'auto', fontSize: 11, color: '#888' }}>{c.slot_court} · {c.slot_hour}</span>}
                 </div>
+
+                {/* Cancha/Fecha/Hora — obligatorios si no tiene reserva */}
+                {(!c.slot_court || !c.slot_day || !c.slot_hour) && (
+                  <div style={{ background: '#f5f4f0', borderRadius: 8, padding: '10px 10px 4px', marginBottom: 10 }}>
+                    <div style={{ fontSize: 11, color: '#888', marginBottom: 8 }}>
+                      <i className="ti ti-info-circle" style={{ marginRight: 4 }} />
+                      Completa los datos del partido para poder guardar el resultado
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginBottom: 6 }}>
+                      <div className="form-row" style={{ marginBottom: 0 }}>
+                        <label>Cancha *</label>
+                        <select value={slotInfo[c.id]?.court || c.slot_court || ''}
+                          onChange={e => {
+                            const val = e.target.value
+                            setSlotInfo(s => ({ ...s, [c.id]: { ...s[c.id], court: val } }))
+                            c.slot_court = val
+                          }}>
+                          <option value="">—</option>
+                          {['c1','c2','c3'].map(id => <option key={id} value={id}>{id}</option>)}
+                        </select>
+                      </div>
+                      <div className="form-row" style={{ marginBottom: 0 }}>
+                        <label>Fecha *</label>
+                        <input type="date" value={slotInfo[c.id]?.day || c.slot_day || ''}
+                          onChange={e => {
+                            const val = e.target.value
+                            setSlotInfo(s => ({ ...s, [c.id]: { ...s[c.id], day: val } }))
+                            c.slot_day = val
+                          }} />
+                      </div>
+                      <div className="form-row" style={{ marginBottom: 0 }}>
+                        <label>Hora *</label>
+                        <input type="time" value={slotInfo[c.id]?.hour || c.slot_hour || ''}
+                          onChange={e => {
+                            const val = e.target.value
+                            setSlotInfo(s => ({ ...s, [c.id]: { ...s[c.id], hour: val } }))
+                            c.slot_hour = val
+                          }} />
+                      </div>
+                    </div>
+                  </div>
+                )}
                 <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
                   <div style={{ flex: 1 }}>
                     <label style={{ fontSize: 11, color: '#888', display: 'block', marginBottom: 3 }}>{c.challenger?.nombre}</label>
@@ -316,7 +385,7 @@ export default function Resultados() {
       {activeTab === 'partidos' && toReport.length === 0 && (
         <div className="notif" style={{ background: '#f5f4f0', border: '0.5px solid #e0dfd8', marginBottom: 14 }}>
           <i className="ti ti-info-circle" aria-hidden="true" />
-          No hay partidos listos para anotar. La cancha debe estar reservada, con pago confirmado y la hora debe haber llegado.
+          No tienes partidos activos para anotar resultado.
         </div>
       )}
 
@@ -359,6 +428,12 @@ export default function Resultados() {
                       <button className="btn" style={{ fontSize: 11, padding: '2px 8px', marginLeft: 2 }}
                         onClick={() => { setEditingId(c.id); setEditScores({ [c.id + '_a']: c.score_a, [c.id + '_b']: c.score_b }); setEditTiebreaks({ [c.id + '_a']: c.tiebreak_a || '', [c.id + '_b']: c.tiebreak_b || '' }) }}>
                         Editar
+                      </button>
+                    )}
+                    {canEdit(c) && !isEditing && (
+                      <button className="btn btn-reject" style={{ fontSize: 11, padding: '2px 8px', marginLeft: 2 }}
+                        onClick={() => cancelResult(c)}>
+                        Cancelar
                       </button>
                     )}
                   </div>
