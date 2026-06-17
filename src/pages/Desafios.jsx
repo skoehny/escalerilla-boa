@@ -38,6 +38,12 @@ export default function Desafios() {
   const [notif, setNotif] = useState(null)
   const [slotModal, setSlotModal] = useState(null)
   const [slotError, setSlotError] = useState('')
+  const [playedModal, setPlayedModal] = useState(null)  // { id, challenger, challenged }
+  const [playedData, setPlayedData] = useState({ court: '', day: '', hour: '18:00', sa: '', sb: '', tba: '', tbb: '' })
+  const [playedError, setPlayedError] = useState('')
+  const [cancelModal, setCancelModal] = useState(null)  // challenge a cancelar
+  const [cancelReason, setCancelReason] = useState('')
+  const [cancelOther, setCancelOther] = useState('')
   const isAdminCanchas = player?.es_admin_canchas
 
   useEffect(() => { load() }, [])
@@ -116,9 +122,52 @@ export default function Desafios() {
     load()
   }
 
+  async function markAsPlayed() {
+    const { court, day, hour, sa, sb, tba, tbb } = playedData
+    const scoreA = parseInt(sa), scoreB = parseInt(sb)
+    if (!court) { setPlayedError('Selecciona la cancha.'); return }
+    if (!day) { setPlayedError('Indica la fecha del partido.'); return }
+    if (!hour) { setPlayedError('Indica la hora del partido.'); return }
+    if (isNaN(scoreA) || isNaN(scoreB)) { setPlayedError('Ingresa el resultado (games de cada uno).'); return }
+    if (scoreA < 0 || scoreB < 0 || scoreA > 9 || scoreB > 9) { setPlayedError('Games entre 0 y 9.'); return }
+    if (scoreA === scoreB) { setPlayedError('No puede terminar empatado.'); return }
+    const isTB = (scoreA === 9 && scoreB === 8) || (scoreA === 8 && scoreB === 9)
+    if (isTB && (isNaN(parseInt(tba)) || isNaN(parseInt(tbb)))) { setPlayedError('Ingresa el marcador del tiebreak.'); return }
+    const slotDay = (() => {
+      if (day.includes('-') && day.length === 10) {
+        const dt = new Date(day + 'T12:00:00')
+        return dt.toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' })
+      }
+      return day
+    })()
+    try {
+      await updateChallenge(playedModal.id, {
+        status: 'completed',
+        slot_court: court,
+        slot_day: slotDay,
+        slot_hour: hour,
+        score_a: scoreA,
+        score_b: scoreB,
+        ganador: scoreA > scoreB ? 'challenger' : 'challenged',
+        tiebreak_a: isTB ? parseInt(tba) : null,
+        tiebreak_b: isTB ? parseInt(tbb) : null,
+        anotado_por: player.id,
+        ranking_applied: false,
+        resultado_validado: false,
+      })
+      setPlayedModal(null)
+      setPlayedData({ court: '', day: '', hour: '18:00', sa: '', sb: '', tba: '', tbb: '' })
+      setPlayedError('')
+      ntf('Resultado guardado. El rival puede revisarlo en Resultados.')
+      load()
+    } catch (err) { setPlayedError(err.message) }
+  }
+
   async function cancelChallenge(c) {
-    await updateChallenge(c.id, { status: 'expired' })
-    ntf('Desafío cancelado. Ambos jugadores quedan libres.', 'warn')
+    const motivo = cancelReason === 'other' ? (cancelOther.trim() || 'Otro') : cancelReason
+    await updateChallenge(c.id, { status: 'expired', cancel_reason: motivo })
+    ntf('Desafío cancelado.', 'warn')
+    setCancelModal(null); setCancelReason(''); setCancelOther('')
     load()
   }
 
@@ -220,9 +269,15 @@ export default function Desafios() {
                     Esperando respuesta · vence {fmtDate(c.deadline)}
                   </div>
                 </div>
-                <button className="btn btn-reject" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => cancelChallenge(c)}>
-                  Cancelar
-                </button>
+                <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                  <button className="btn btn-accept" style={{ fontSize: 12, padding: '4px 10px' }}
+                    onClick={() => { setPlayedModal({ id: c.id, challenger: c.challenger, challenged: c.challenged }); setPlayedData({ court: courts[0]?.id || '', day: '', hour: '18:00', sa: '', sb: '', tba: '', tbb: '' }); setPlayedError('') }}>
+                    Jugamos
+                  </button>
+                  <button className="btn btn-reject" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => { setCancelModal(c); setCancelReason(''); setCancelOther('') }}>
+                    Cancelar
+                  </button>
+                </div>
               </div>
             </div>
           ))}
@@ -297,7 +352,7 @@ export default function Desafios() {
                     Ver canchas disponibles →
                   </a>
                   <button className="btn btn-reject" style={{ fontSize: 12, padding: '6px 12px' }}
-                    onClick={() => cancelChallenge(myActive)}>
+                    onClick={() => { setCancelModal(myActive); setCancelReason(''); setCancelOther('') }}>
                     Cancelar desafío
                   </button>
                 </div>
@@ -380,6 +435,116 @@ export default function Desafios() {
                 </div>
               )
             })}
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Marcar como jugado (desafío pendiente sin aceptación formal) */}
+      {playedModal && (
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setPlayedModal(null) }}>
+          <div className="modal" style={{ maxHeight: '85vh', overflowY: 'auto' }}>
+            <h3>Registrar partido jugado</h3>
+            <p style={{ fontSize: 12, color: '#888', marginBottom: 12 }}>
+              {playedModal.challenger?.nombre} vs {playedModal.challenged?.nombre} — el rival podrá revisar y editar el resultado.
+            </p>
+            {playedError && <div className="notif notif-err" style={{ marginBottom: 10 }}>{playedError}</div>}
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginBottom: 6 }}>
+              <div className="form-row" style={{ marginBottom: 0 }}>
+                <label>Cancha *</label>
+                <select value={playedData.court} onChange={e => { setPlayedData(d => ({ ...d, court: e.target.value })); setPlayedError('') }}>
+                  <option value="">—</option>
+                  {courts.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                </select>
+              </div>
+              <div className="form-row" style={{ marginBottom: 0 }}>
+                <label>Fecha *</label>
+                <input type="date" value={playedData.day} onChange={e => { setPlayedData(d => ({ ...d, day: e.target.value })); setPlayedError('') }} />
+              </div>
+              <div className="form-row" style={{ marginBottom: 0 }}>
+                <label>Hora *</label>
+                <select value={playedData.hour} onChange={e => { setPlayedData(d => ({ ...d, hour: e.target.value })); setPlayedError('') }}>
+                  {HOURS.map(h => <option key={h} value={h}>{h}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>
+              <div className="form-row">
+                <label>{playedModal.challenger?.nombre} (games) *</label>
+                <input type="number" min="0" max="9" value={playedData.sa}
+                  onChange={e => { setPlayedData(d => ({ ...d, sa: e.target.value })); setPlayedError('') }}
+                  placeholder="0–9" inputMode="numeric" />
+              </div>
+              <div className="form-row">
+                <label>{playedModal.challenged?.nombre} (games) *</label>
+                <input type="number" min="0" max="9" value={playedData.sb}
+                  onChange={e => { setPlayedData(d => ({ ...d, sb: e.target.value })); setPlayedError('') }}
+                  placeholder="0–9" inputMode="numeric" />
+              </div>
+            </div>
+
+            {((parseInt(playedData.sa) === 9 && parseInt(playedData.sb) === 8) ||
+              (parseInt(playedData.sa) === 8 && parseInt(playedData.sb) === 9)) && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <div className="form-row">
+                  <label>Tiebreak {playedModal.challenger?.nombre} *</label>
+                  <input type="number" min="0" value={playedData.tba}
+                    onChange={e => setPlayedData(d => ({ ...d, tba: e.target.value }))} inputMode="numeric" />
+                </div>
+                <div className="form-row">
+                  <label>Tiebreak {playedModal.challenged?.nombre} *</label>
+                  <input type="number" min="0" value={playedData.tbb}
+                    onChange={e => setPlayedData(d => ({ ...d, tbb: e.target.value }))} inputMode="numeric" />
+                </div>
+              </div>
+            )}
+
+            <div className="modal-actions">
+              <button className="btn" onClick={() => setPlayedModal(null)}>Cancelar</button>
+              <button className="btn btn-accept" onClick={markAsPlayed}>Guardar resultado</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Cancelar desafío con motivo */}
+      {cancelModal && (
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) { setCancelModal(null); setCancelReason('') } }}>
+          <div className="modal">
+            <h3>Cancelar desafío</h3>
+            <p style={{ fontSize: 12, color: '#888', marginBottom: 12 }}>
+              {cancelModal.challenger?.nombre} vs {cancelModal.challenged?.nombre} — ¿cuál es el motivo?
+            </p>
+            {[
+              { id: 'no_response', label: 'Sin respuesta del rival (48h sin aceptar)' },
+              { id: 'no_schedule', label: 'No pudimos acordar horario ni cancha' },
+              { id: 'injury',      label: 'Lesión de alguno de los dos' },
+              { id: 'mutual',      label: 'Acuerdo mutuo — partido no se jugará' },
+              { id: 'other',       label: 'Otro motivo' },
+            ].map(opt => (
+              <label key={opt.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, fontSize: 13, cursor: 'pointer' }}>
+                <input type="radio" name="cancel_reason" value={opt.id}
+                  checked={cancelReason === opt.id}
+                  onChange={() => { setCancelReason(opt.id); setCancelOther('') }}
+                  style={{ width: 16, height: 16, flexShrink: 0 }} />
+                {opt.label}
+              </label>
+            ))}
+            {cancelReason === 'other' && (
+              <div className="form-row">
+                <label>Describe el motivo</label>
+                <input type="text" value={cancelOther} onChange={e => setCancelOther(e.target.value)}
+                  placeholder="Escribe el motivo..." maxLength={100} />
+              </div>
+            )}
+            <div className="modal-actions">
+              <button className="btn" onClick={() => { setCancelModal(null); setCancelReason('') }}>Volver</button>
+              <button className="btn btn-reject" disabled={!cancelReason || (cancelReason === 'other' && !cancelOther.trim())}
+                onClick={() => cancelChallenge(cancelModal)}>
+                Confirmar cancelación
+              </button>
+            </div>
           </div>
         </div>
       )}

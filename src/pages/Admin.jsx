@@ -498,12 +498,25 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
     const m = resultModal
     const sa = parseInt(m.score_a), sb = parseInt(m.score_b)
     if (isNaN(sa) || isNaN(sb)) { ntf('Ingresa los games', 'err'); return }
-    const isTie = sa === 8 && sb === 8
-    if (isTie) {
+    if (sa === sb) { ntf('No puede terminar empatado.', 'err'); return }
+    if (sa < 0 || sb < 0 || sa > 9 || sb > 9) { ntf('Games entre 0 y 9.', 'err'); return }
+    const isTB = (sa === 9 && sb === 8) || (sa === 8 && sb === 9)
+    if (isTB) {
       const tba = parseInt(m.tiebreak_a), tbb = parseInt(m.tiebreak_b)
       if (isNaN(tba) || isNaN(tbb) || Math.abs(tba - tbb) < 2) { ntf('Tiebreak inválido — diferencia mínima 2', 'err'); return }
     }
-    const winner = isTie ? (parseInt(m.tiebreak_a) > parseInt(m.tiebreak_b) ? 'challenger' : 'challenged') : (sa > sb ? 'challenger' : 'challenged')
+    if (!m.slot_court) { ntf('Selecciona la cancha.', 'err'); return }
+    const finalDay = m.slot_day_edit || m.slot_day || null
+    if (!finalDay) { ntf('Ingresa la fecha del partido.', 'err'); return }
+    if (!m.slot_hour) { ntf('Ingresa la hora del partido.', 'err'); return }
+    const slotDay = (() => {
+      if (m.slot_day_edit && m.slot_day_edit.includes('-')) {
+        const dt = new Date(m.slot_day_edit + 'T12:00:00')
+        return dt.toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' })
+      }
+      return finalDay
+    })()
+    const winner = sa > sb ? 'challenger' : 'challenged'
     const ch = players.find(p => p.id === m.challenger_id)
     const cd = players.find(p => p.id === m.challenged_id)
     const winnerP = winner === 'challenger' ? ch : cd
@@ -511,14 +524,15 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
     try {
       await updateChallenge(m.id, {
         status: 'completed', score_a: sa, score_b: sb, ganador: winner,
-        ...(isTie ? { tiebreak_a: parseInt(m.tiebreak_a), tiebreak_b: parseInt(m.tiebreak_b) } : {})
+        slot_court: m.slot_court, slot_day: slotDay, slot_hour: m.slot_hour,
+        ranking_applied: false, resultado_validado: false,
+        ...(isTB ? { tiebreak_a: parseInt(m.tiebreak_a), tiebreak_b: parseInt(m.tiebreak_b) } : { tiebreak_a: null, tiebreak_b: null })
       })
       if (winnerP) await updatePlayer(winnerP.id, { victorias: (winnerP.victorias || 0) + 1 })
       if (loserP) await updatePlayer(loserP.id, { derrotas: (loserP.derrotas || 0) + 1 })
-      // NO mover ranking — se actualiza el jueves al publicar
       await notifyResult(ch, cd, sa, sb, winnerP, null)
       setResultModal(null)
-      ntf(`Resultado guardado: ${sa}–${sb}. ${winnerP?.nombre} gana. Ranking se actualiza el jueves.`)
+      ntf(`Resultado guardado: ${sa}–${sb}. ${winnerP?.nombre} gana.`)
       load()
     } catch (err) { ntf(err.message, 'err') }
   }
@@ -792,7 +806,7 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
                       }
                       {c.slot_day && !c.pago_confirmado && <button className="btn btn-accept" style={{ fontSize: 12 }} onClick={() => validatePayment(c)}>Validar pago</button>}
                       <button className="btn btn-accept" style={{ fontSize: 12, borderColor: '#185FA5', color: '#185FA5' }}
-                        onClick={() => setResultModal({ ...c, challenger_id: c.challenger_id || c.challenger?.id, challenged_id: c.challenged_id || c.challenged?.id, challenger: ch, challenged: cd, score_a: '', score_b: '', tiebreak_a: '', tiebreak_b: '' })}>
+                        onClick={() => setResultModal({ ...c, challenger_id: c.challenger_id || c.challenger?.id, challenged_id: c.challenged_id || c.challenged?.id, challenger: ch, challenged: cd, score_a: '', score_b: '', tiebreak_a: '', tiebreak_b: '', slot_court: c.slot_court || courts[0]?.id || '', slot_day_edit: '', slot_hour: c.slot_hour || '18:00' })}>
                         Ingresar resultado
                       </button>
                       <button className="btn btn-warn" style={{ fontSize: 12 }}
@@ -945,6 +959,28 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
           <div className="modal">
             <h3>Ingresar resultado</h3>
             <p style={{ fontSize: 13, color: '#555', marginBottom: 12 }}>{resultModal.challenger?.nombre} vs {resultModal.challenged?.nombre}</p>
+
+            {/* Cancha / Fecha / Hora — siempre obligatorios */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginBottom: 10 }}>
+              <div className="form-row" style={{ marginBottom: 0 }}>
+                <label>Cancha *</label>
+                <select value={resultModal.slot_court} onChange={e => setResultModal(m => ({ ...m, slot_court: e.target.value }))}>
+                  <option value="">—</option>
+                  {courts.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                </select>
+              </div>
+              <div className="form-row" style={{ marginBottom: 0 }}>
+                <label>Fecha *</label>
+                <input type="date" value={resultModal.slot_day_edit || ''} onChange={e => setResultModal(m => ({ ...m, slot_day_edit: e.target.value }))} />
+              </div>
+              <div className="form-row" style={{ marginBottom: 0 }}>
+                <label>Hora *</label>
+                <select value={resultModal.slot_hour} onChange={e => setResultModal(m => ({ ...m, slot_hour: e.target.value }))}>
+                  {HOURS.map(h => <option key={h} value={h}>{h}</option>)}
+                </select>
+              </div>
+            </div>
+
             <div style={{ display: 'flex', gap: 8 }}>
               <div className="form-row" style={{ flex: 1 }}>
                 <label>{resultModal.challenger?.nombre}</label>
@@ -955,9 +991,10 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
                 <input type="number" min="0" max="9" value={resultModal.score_b} onChange={e => setResultModal(m => ({ ...m, score_b: e.target.value }))} />
               </div>
             </div>
-            {String(resultModal.score_a) === '8' && String(resultModal.score_b) === '8' && (
+            {((String(resultModal.score_a) === '9' && String(resultModal.score_b) === '8') ||
+              (String(resultModal.score_a) === '8' && String(resultModal.score_b) === '9')) && (
               <div style={{ background: '#FAEEDA', borderRadius: 8, padding: '8px 10px', marginBottom: 10 }}>
-                <div style={{ fontSize: 12, fontWeight: 500, color: '#633806', marginBottom: 8 }}>Tiebreak 8-8</div>
+                <div style={{ fontSize: 12, fontWeight: 500, color: '#633806', marginBottom: 8 }}>Tiebreak 9-8</div>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <div className="form-row" style={{ flex: 1 }}>
                     <label>{resultModal.challenger?.nombre}</label>
