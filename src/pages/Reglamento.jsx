@@ -26,19 +26,27 @@ export default function Reglamento() {
 
       <Rule n="3" title="Plazos y ciclo semanal">
         <p><strong>48 horas</strong> para confirmar o rechazar un desafío.</p>
-        <p style={{ marginTop: 8 }}><strong>1 partido máximo</strong> por semana. El ciclo cierra el miércoles y el ranking se actualiza automáticamente el jueves a las 11:59am.</p>
-        <p style={{ marginTop: 8 }}><strong>Reagendamiento:</strong> Si un partido no se jugó antes del cierre y ambos jugadores siguen en rango, se reagenda automáticamente al próximo miércoles. Solo se puede reagendar 1 vez — si tampoco se juega, el desafío caduca.</p>
+        <p style={{ marginTop: 8 }}><strong>1 partido máximo</strong> por semana. El ciclo cierra el miércoles y el ranking se publica el jueves.</p>
+        <p style={{ marginTop: 8 }}><strong>Publicación del ranking:</strong> La actualización del ranking la realiza el administrador de forma manual, una vez verificados y cargados todos los resultados de la semana. Puede hacerse el jueves o cuando estén todos los partidos resueltos.</p>
         <p style={{ marginTop: 8 }}><strong>Rechazos:</strong> Máximo 2 rechazos por mes.</p>
       </Rule>
 
       <Rule n="4" title="Inactividad">
-        <p>La inactividad aplica a todos los jugadores por igual, independiente de si están lesionados o no.</p>
-        <p style={{ marginTop: 8 }}><strong>Primera semana sin jugar</strong> (más de 12 días desde la última actualización): baja <strong>2 posiciones</strong>.</p>
+        <p>La inactividad aplica a todos los jugadores por igual, estén lesionados o no. Lo único que cuenta es haber jugado y registrado un partido.</p>
+        <p style={{ marginTop: 8 }}><strong>2 semanas sin jugar:</strong> baja <strong>2 posiciones</strong>.</p>
         <p style={{ marginTop: 8 }}><strong>Cada semana adicional</strong> sin jugar: baja <strong>1 posición</strong> más.</p>
-        <p style={{ marginTop: 8 }}><strong>Para recuperarse:</strong> La penalidad se detiene cuando el jugador juega y registra el resultado de su partido.</p>
+        <p style={{ marginTop: 8 }}>La intención de jugar (haber enviado o aceptado un desafío) <strong>no exime</strong> de la penalización: si el partido no se jugó, se aplica el descuento igual.</p>
+        <p style={{ marginTop: 8 }}><strong>Única excepción:</strong> si en la primera semana penalizable no tenías ningún rival disponible por encima (todos lesionados u ocupados en otro partido), esa semana no se penaliza. Desde la siguiente, la penalización aplica normalmente.</p>
+        <p style={{ marginTop: 8 }}><strong>Para recuperarse:</strong> la penalización se detiene cuando el jugador juega y registra el resultado de su partido.</p>
       </Rule>
 
-      <Rule n="5" title="W.O. (Walkover)">
+      <Rule n="5" title="Cancelación de desafíos">
+        <p>Un desafío puede cancelarse en cualquier momento antes de jugarse. Al cancelar, se debe indicar el <strong>motivo</strong>: sin respuesta del rival, no se pudo acordar horario, lesión, acuerdo mutuo, u otro.</p>
+        <p style={{ marginTop: 8 }}>Al cancelar un desafío en la semana en curso, <strong>ambos jugadores quedan libres</strong> para enviar o recibir un nuevo desafío esa misma semana.</p>
+        <p style={{ marginTop: 8 }}>La cancelación no implica penalización por sí misma, pero si ninguno de los dos jugó esa semana, corre la regla de inactividad normalmente.</p>
+      </Rule>
+
+      <Rule n="6" title="W.O. (Walkover)">
         <p>Se declara W.O. en los siguientes casos:</p>
         <p style={{ marginTop: 8 }}>• El partido se cancela con <strong>menos de 24 horas</strong> de anticipación sin acuerdo mutuo.</p>
         <p style={{ marginTop: 8 }}>• Si ambos jugadores acuerdan cancelar con menos de 24 horas, <strong>no hay W.O.</strong> — el partido se cancela limpio.</p>
@@ -46,18 +54,18 @@ export default function Reglamento() {
         <p style={{ marginTop: 8 }}>Cancelaciones con <strong>más de 24 horas</strong>: se reagenda (si ambos siguen en rango) o se cancela limpio.</p>
       </Rule>
 
-      <Rule n="6" title="Lesiones">
+      <Rule n="7" title="Lesiones">
         <p>Cada jugador puede marcarse como lesionado desde su perfil. Mientras esté lesionado:</p>
         <p style={{ marginTop: 8 }}>• No puede recibir desafíos.</p>
         <p style={{ marginTop: 8 }}>• <strong>Sigue acumulando inactividad</strong> — la lesión no exime de la penalidad por no jugar.</p>
         <p style={{ marginTop: 8 }}>El mismo jugador puede darse de alta desde su perfil cuando se recupere.</p>
       </Rule>
 
-      <Rule n="7" title="Registro de resultados">
-        <p>Cualquiera de los dos jugadores puede registrar el resultado una vez que haya pasado la hora del partido. Para registrar se requiere:</p>
-        <p style={{ marginTop: 8 }}>• Cancha, fecha y hora asignadas.</p>
-        <p style={{ marginTop: 8 }}>• Pago confirmado por el administrador.</p>
-        <p style={{ marginTop: 8 }}>El rival puede <strong>editar</strong> el resultado si no está de acuerdo. Cualquiera puede <strong>validarlo</strong> para dejarlo definitivo. Si hay discrepancia, el administrador resuelve.</p>
+      <Rule n="8" title="Registro de resultados">
+        <p>Cualquiera de los dos jugadores puede registrar el resultado de un partido aceptado.</p>
+        <p style={{ marginTop: 8 }}><strong>Datos obligatorios:</strong> para guardar un resultado es obligatorio indicar cancha, fecha, hora y marcador. Sin todos esos datos no se puede guardar (aplica también al administrador).</p>
+        <p style={{ marginTop: 8 }}><strong>Si jugaron sin que el rival aceptara por la app:</strong> el desafiante puede usar la opción "Jugamos" para registrar el resultado directamente, completando todos los datos.</p>
+        <p style={{ marginTop: 8 }}><strong>Validación:</strong> el rival puede editar el resultado si no está de acuerdo, o validarlo para dejarlo definitivo. Mientras no esté validado, cualquiera de los dos puede cancelar el resultado y volver a ingresarlo. Si hay discrepancia, el administrador resuelve.</p>
       </Rule>
 
       <div style={{ background: '#E1F5EE', border: '0.5px solid #5DCAA5', borderRadius: 8, padding: '10px 12px', marginTop: 10, fontSize: 12, color: '#085041' }}>
