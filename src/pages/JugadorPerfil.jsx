@@ -5,16 +5,12 @@ import { useSession } from '../components/SessionContext'
 
 function ini(n, a) { return ((n?.[0] || '') + (a?.[0] || '')).toUpperCase() }
 
-function inactivityTime(player, lastPlayedDate) {
-  const referenceDate = lastPlayedDate || player?.ultima_fecha_jugada || player?.created_at
-  if (!referenceDate) return null
-  const now = new Date()
-  const ref = new Date(referenceDate)
-  const diffDays = Math.floor((now - ref) / (1000 * 60 * 60 * 24))
-  if (diffDays < 7) return null
-  const weeks = Math.floor(diffDays / 7)
-  const days = diffDays % 7
-  return `${weeks}S ${days}D`
+function inactivityTime(player, fechaInicio) {
+  if (!player?.semanas_inactivo) return null
+  const dias = fechaInicio
+    ? Math.floor((new Date() - new Date(fechaInicio + 'T12:00:00')) / (1000 * 60 * 60 * 24))
+    : 0
+  return `${player.semanas_inactivo}S ${dias}D`
 }
 
 function statusText(c) {
@@ -49,17 +45,20 @@ export default function JugadorPerfil() {
   const [jugador, setJugador] = useState(null)
   const [history, setHistory] = useState([])
   const [activeChallenge, setActiveChallenge] = useState(null)
+  const [weekConfig, setWeekConfig] = useState(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => { load() }, [id])
 
   async function load() {
     try {
-      const [{ data: j }, ch] = await Promise.all([
+      const [{ data: j }, ch, { data: cfg }] = await Promise.all([
         supabase.from('players').select('*').eq('id', id).single(),
-        getChallenges()
+        getChallenges(),
+        supabase.from('weekly_config').select('fecha_inicio').eq('id', 1).single()
       ])
       setJugador(j)
+      setWeekConfig(cfg)
       const mine = ch.filter(c =>
         (c.challenger_id === id || c.challenged_id === id) && c.status === 'completed'
       ).sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
@@ -115,8 +114,7 @@ export default function JugadorPerfil() {
             {wins.length}V {history.length - wins.length}D · {history.length} partidos
           </div>
           {(() => {
-            const lastPlayed = history[0]?.created_at
-            const inactTime = inactivityTime(jugador, lastPlayed)
+            const inactTime = inactivityTime(jugador, weekConfig?.fecha_inicio)
             return (
               <>
                 {jugador.lesionado && (

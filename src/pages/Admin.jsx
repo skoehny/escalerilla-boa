@@ -121,54 +121,51 @@ export default function Admin() {
     const notas = []     // info adicional (exenciones, defensas)
 
     // ── PASO 1: Penalizaciones por inactividad (ANTES de los resultados) ──
-    const lastPlayedBy = {}
-    challenges.forEach(c => {
-      if (c.status !== 'completed') return
-      ;[c.challenger_id, c.challenged_id].forEach(pid => {
-        if (!lastPlayedBy[pid] || new Date(c.created_at) > new Date(lastPlayedBy[pid])) {
-          lastPlayedBy[pid] = c.created_at
-        }
-      })
+
+    // Fase 0: partidos que se aplican ahora → quién jugó esta semana
+    const pending = challenges
+      .filter(c => c.status === 'completed' && !c.ranking_applied)
+      .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+    const jugaron = new Set()
+    pending.forEach(c => { jugaron.add(c.challenger_id); jugaron.add(c.challenged_id) })
+
+    // Clasificación fija: debutante = sin ningún partido completado jamás
+    const hasEverPlayedMap = {}
+    sim.forEach(p => {
+      hasEverPlayedMap[p.id] = (p.victorias || 0) + (p.derrotas || 0) > 0 || jugaron.has(p.id)
     })
 
-    // Exención B: sin rivales disponibles arriba
-    const busy = new Set()
-    challenges.forEach(c => {
-      if (c.status === 'pending' || c.status === 'accepted' || (c.status === 'completed' && !c.ranking_applied)) {
-        busy.add(c.challenger_id)
-        busy.add(c.challenged_id)
-      }
-    })
-    const sinRivales = p => sim.filter(x =>
-      originalPos[x.id] < originalPos[p.id] && !x.lesionado && !busy.has(x.id)
-    ).length === 0
-
-    // Castigo: 2 semanas inactivo = -2; cada semana adicional = -1. Aplica igual a lesionados.
+    // Paso A+B: actualizar contador semanas_inactivo y calcular penalización
     const penMap = {}
+    const nuevasSemanas = {}
     const penaltyLog = []
     for (const p of sim) {
-      const ref = lastPlayedBy[p.id] || p.ultima_fecha_jugada || p.created_at
-      if (!ref) continue
-      const weeks = Math.floor((new Date() - new Date(ref)) / (7 * 24 * 60 * 60 * 1000))
-      if (weeks < 2) continue
-      if (weeks === 2 && sinRivales(p)) {
-        notas.push(`${nm(p)} queda exento (semana de gracia): no tenía rivales disponibles arriba.`)
-        continue
-      }
-      penMap[p.id] = weeks === 2 ? 2 : 1
-      penaltyLog.push(`${nm(p)} (-${penMap[p.id]})`)
-      addReason(p.id, `penalización por inactividad: ${weeks} semanas sin jugar (-${penMap[p.id]})${p.lesionado ? ' [lesionado]' : ''}`)
+      if (!hasEverPlayedMap[p.id]) { nuevasSemanas[p.id] = 0; continue } // debutante: nunca penalizar
+      const n = jugaron.has(p.id) ? 0 : (p.semanas_inactivo || 0) + 1
+      nuevasSemanas[p.id] = n
+      if (n === 1) notas.push(`${nm(p)} lleva 1 semana sin jugar (sin penalización aún).`)
+      if (n <= 1) continue
+      const pen = n === 2 ? 2 : 1
+      penMap[p.id] = pen
+      penaltyLog.push(`${nm(p)} (-${pen})`)
+      addReason(p.id, `penalización por inactividad: ${n} semanas sin jugar (-${pen})${p.lesionado ? ' [lesionado]' : ''}`)
     }
 
-    // Reordenar: penalizado apunta a (posición + castigo); no penalizados suben llenando huecos
-    sim.sort((a, b) => {
-      const ka = originalPos[a.id] + (penMap[a.id] || 0)
-      const kb = originalPos[b.id] + (penMap[b.id] || 0)
-      if (ka !== kb) return ka - kb
-      const pa = penMap[a.id] ? 1 : 0, pb = penMap[b.id] ? 1 : 0
-      if (pa !== pb) return pa - pb
-      return originalPos[a.id] - originalPos[b.id]
-    })
+    // Paso C: aplicar bajadas bottom-up (inactivo no baja debajo de otro inactivo ni debutante)
+    const inactivos = sim.filter(p => (penMap[p.id] || 0) > 0)
+      .sort((a, b) => originalPos[b.id] - originalPos[a.id])
+    for (const inactivo of inactivos) {
+      let idx = sim.indexOf(inactivo)
+      for (let step = 0; step < penMap[inactivo.id]; step++) {
+        if (idx + 1 >= sim.length) break
+        const vecino = sim[idx + 1]
+        if ((penMap[vecino.id] || 0) > 0) break        // vecino inactivo → bloquea
+        if (!hasEverPlayedMap[vecino.id]) break         // vecino debutante → bloquea
+        sim[idx] = vecino; sim[idx + 1] = inactivo; idx++
+      }
+    }
+
+    // Reasignar posiciones y registrar subidas
     sim.forEach((p, i) => {
       if (!penMap[p.id] && (i + 1) < originalPos[p.id]) {
         addReason(p.id, 'sube por penalizaciones de jugadores más arriba')
@@ -177,9 +174,6 @@ export default function Admin() {
     })
 
     // ── PASO 2: Resultados de partidos (sobre el ranking ya penalizado) ──
-    const pending = challenges
-      .filter(c => c.status === 'completed' && !c.ranking_applied)
-      .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
     for (const c of pending) {
       const ch = sim.find(p => p.id === c.challenger_id)
       const cd = sim.find(p => p.id === c.challenged_id)
@@ -212,11 +206,11 @@ export default function Admin() {
       }))
       .sort((a, b) => a.hasta - b.hasta)
 
-    return { cfg, sim, originalPos, pending, penaltyLog, movements, notas }
+    return { cfg, sim, originalPos, pending, penaltyLog, movements, notas, nuevasSemanas }
   }
 
   async function publishRanking(plan) {
-    const { cfg, sim, originalPos, pending, penaltyLog, movements, notas } = plan
+    const { cfg, sim, originalPos, pending, penaltyLog, movements, notas, nuevasSemanas } = plan
     const refreshed = sim
     const nuevaSemana = (cfg?.semana || 0) + 1
 
@@ -243,7 +237,7 @@ export default function Admin() {
 
       // ── PASO 3: Actualizar posiciones (posicion_anterior = valor real previo) ──
       await Promise.all(sim.map(p =>
-        updatePlayer(p.id, { posicion: p.posicion, posicion_anterior: originalPos[p.id] })
+        updatePlayer(p.id, { posicion: p.posicion, posicion_anterior: originalPos[p.id], semanas_inactivo: nuevasSemanas[p.id] ?? 0 })
       ))
       await Promise.all(pending.map(c => updateChallenge(c.id, { ranking_applied: true })))
 

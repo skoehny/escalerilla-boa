@@ -13,15 +13,12 @@ function fmtShortDate(d) {
   } catch { return d }
 }
 
-function playerInactivity(p, lastPlayedDate) {
-  // Misma lógica que JugadorPerfil: prioriza la fecha del último partido completado real
-  const ref = lastPlayedDate || p.ultima_fecha_jugada || p.created_at
-  if (!ref) return null
-  const diffDays = Math.floor((new Date() - new Date(ref)) / (1000 * 60 * 60 * 24))
-  if (diffDays < 7) return null
-  const weeks = Math.floor(diffDays / 7)
-  const days = diffDays % 7
-  return `${weeks}S ${days}D`
+function playerInactivity(p, fechaInicio) {
+  if (!p.semanas_inactivo) return null
+  const dias = fechaInicio
+    ? Math.floor((new Date() - new Date(fechaInicio + 'T12:00:00')) / (1000 * 60 * 60 * 24))
+    : 0
+  return `${p.semanas_inactivo}S ${dias}D`
 }
 
 function trend(pos, prev) {
@@ -100,18 +97,6 @@ export default function Ranking() {
 
   if (loading) return <p style={{ color: '#888', fontSize: 13, textAlign: 'center', padding: 24 }}>Cargando ranking...</p>
 
-  // Mapa: última fecha de partido completado por jugador (derivado de challenges, fuente de verdad)
-  const lastPlayedByPlayer = {}
-  challenges.forEach(c => {
-    if (c.status !== 'completed') return
-    const date = c.created_at
-    ;[c.challenger_id, c.challenged_id].forEach(pid => {
-      if (!lastPlayedByPlayer[pid] || new Date(date) > new Date(lastPlayedByPlayer[pid])) {
-        lastPlayedByPlayer[pid] = date
-      }
-    })
-  })
-
   return (
     <div>
       {notif && <div className={`notif notif-${notif.type}`}><i className={`ti ti-${notif.type === 'ok' ? 'check' : 'alert-triangle'}`} aria-hidden="true" /> {notif.msg}</div>}
@@ -151,8 +136,7 @@ export default function Ranking() {
         {players.map(p => {
           const isMe = p.id === player?.id
           const numColor = p.posicion <= 3 ? '#D85A30' : '#888'
-          const lastPlayed = lastPlayedByPlayer[p.id]
-          const inact = playerInactivity(p, lastPlayed)
+          const inact = playerInactivity(p, weekConfig?.fecha_inicio)
           const targetHasActive = challenges.some(c =>
             (c.challenger_id === p.id || c.challenged_id === p.id) &&
             (c.status === 'pending' || c.status === 'accepted' ||
