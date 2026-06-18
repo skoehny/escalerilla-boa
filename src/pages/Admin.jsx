@@ -127,16 +127,6 @@ export default function Admin() {
       })
     })
 
-    // Exención A: intención de jugar — tuvo algún desafío esta semana (cualquier estado)
-    const weekStart = cfg?.fecha_inicio ? new Date(cfg.fecha_inicio + 'T00:00:00') : null
-    const intentToPlay = pid => challenges.some(c =>
-      (c.challenger_id === pid || c.challenged_id === pid) && (
-        c.status === 'pending' || c.status === 'accepted' ||
-        (c.status === 'completed' && !c.ranking_applied) ||
-        (weekStart && new Date(c.created_at) >= weekStart)
-      )
-    )
-
     // Exención B: sin rivales disponibles arriba
     const busy = new Set()
     challenges.forEach(c => {
@@ -157,10 +147,6 @@ export default function Admin() {
       if (!ref) continue
       const weeks = Math.floor((new Date() - new Date(ref)) / (7 * 24 * 60 * 60 * 1000))
       if (weeks < 2) continue
-      if (intentToPlay(p.id)) {
-        notas.push(`${nm(p)} lleva ${weeks} semanas sin jugar pero queda exento: tuvo desafío esta semana.`)
-        continue
-      }
       if (weeks === 2 && sinRivales(p)) {
         notas.push(`${nm(p)} queda exento (semana de gracia): no tenía rivales disponibles arriba.`)
         continue
