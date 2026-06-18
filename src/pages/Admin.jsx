@@ -99,7 +99,11 @@ export default function Admin() {
     const action = pinModal.action
     setPinModal(null)
     setPinInput('')
-    action()
+    try {
+      await action()
+    } catch (err) {
+      ntf('Error al ejecutar la acción: ' + err.message, 'err')
+    }
   }
 
   // Calcula el plan de publicación SIN tocar la BD: posiciones nuevas + explicación de cada movimiento
@@ -213,46 +217,63 @@ export default function Admin() {
 
   async function publishRanking(plan) {
     const { cfg, sim, originalPos, pending, penaltyLog, movements, notas } = plan
-
-    // ── Persistir todo de una vez ──
-    await Promise.all(sim.map(p => updatePlayer(p.id, { posicion: p.posicion, posicion_anterior: p.posicion })))
-    await Promise.all(pending.map(c => updateChallenge(c.id, { ranking_applied: true })))
-
-    // Snapshot (posicion_anterior = posición ANTES de publicar, para poder deshacer)
     const refreshed = sim
-    await supabase.from('ranking_snapshots').insert({ data: refreshed.map(p => ({ player_id: p.id, posicion: p.posicion, posicion_anterior: originalPos[p.id] })), applied_challenge_ids: pending.map(c => c.id) })
-    // Upsert para sobreescribir si ya existe esa semana
-    await supabase.from('ranking_history').upsert({
-      semana: cfg?.semana || 0,
-      fecha: new Date().toISOString().split('T')[0],
-      publicado_por: 'manual',
-      hora_publicacion: new Date().toISOString(),
-      data: refreshed.map(p => ({ id: p.id, nombre: p.nombre, apellido: p.apellido, posicion: p.posicion, victorias: p.victorias, derrotas: p.derrotas })),
-      movimientos: { movements, notas, penaltyLog },
-    }, { onConflict: 'semana' })
-    // Marcar como publicado manual + avanzar semana
-    const today = new Date()
-    const todayStr = today.toISOString().split('T')[0]
-    // Próximo miércoles (cierre)
-    const nextWed = new Date(today)
-    const daysToWed = (3 - today.getDay() + 7) % 7 || 7
-    nextWed.setDate(today.getDate() + daysToWed)
-    // Próximo jueves (publicación)
-    const nextThu = new Date(today)
-    const daysToThu = (4 - today.getDay() + 7) % 7 || 7
-    nextThu.setDate(today.getDate() + daysToThu)
-    await supabase.from('weekly_config').update({
-      semana: (cfg?.semana || 0) + 1,
-      fecha_inicio: todayStr,
-      fecha_cierre: nextWed.toISOString().split('T')[0],
-      fecha_ranking: nextThu.toISOString().split('T')[0],
-      publicado_manual: true
-    }).eq('id', 1)
-    await notifyRankingUpdated(cfg?.semana || '—', refreshed.slice(0, 5))
-    ntf(penaltyLog.length
-      ? `Ranking publicado. Penalizaciones por inactividad: ${penaltyLog.join(', ')}.`
-      : 'Ranking publicado. Sin penalizaciones por inactividad esta semana.')
-    load()
+    const nuevaSemana = (cfg?.semana || 0) + 1
+
+    try {
+      // ── PASO 1: Guardar historial PRIMERO (si falla, no se toca nada más) ──
+      const { error: histError } = await supabase.from('ranking_history').upsert({
+        semana: nuevaSemana,
+        fecha: new Date().toISOString().split('T')[0],
+        publicado_por: 'manual',
+        hora_publicacion: new Date().toISOString(),
+        data: refreshed.map(p => ({ id: p.id, nombre: p.nombre, apellido: p.apellido, posicion: p.posicion, victorias: p.victorias, derrotas: p.derrotas })),
+        movimientos: { movements, notas, penaltyLog },
+      }, { onConflict: 'semana' })
+      if (histError) {
+        ntf('Error al guardar el historial: ' + histError.message + '. No se aplicaron cambios.', 'err')
+        return
+      }
+
+      // ── PASO 2: Snapshot (para poder deshacer) ──
+      await supabase.from('ranking_snapshots').insert({
+        data: refreshed.map(p => ({ player_id: p.id, posicion: p.posicion, posicion_anterior: originalPos[p.id] })),
+        applied_challenge_ids: pending.map(c => c.id)
+      })
+
+      // ── PASO 3: Actualizar posiciones (posicion_anterior = valor real previo) ──
+      await Promise.all(sim.map(p =>
+        updatePlayer(p.id, { posicion: p.posicion, posicion_anterior: originalPos[p.id] })
+      ))
+      await Promise.all(pending.map(c => updateChallenge(c.id, { ranking_applied: true })))
+
+      // ── PASO 4: Avanzar semana ──
+      const today = new Date()
+      const todayStr = today.toISOString().split('T')[0]
+      const nextWed = new Date(today)
+      const daysToWed = (3 - today.getDay() + 7) % 7 || 7
+      nextWed.setDate(today.getDate() + daysToWed)
+      const nextThu = new Date(today)
+      const daysToThu = (4 - today.getDay() + 7) % 7 || 7
+      nextThu.setDate(today.getDate() + daysToThu)
+      await supabase.from('weekly_config').update({
+        semana: nuevaSemana,
+        fecha_inicio: todayStr,
+        fecha_cierre: nextWed.toISOString().split('T')[0],
+        fecha_ranking: nextThu.toISOString().split('T')[0],
+        publicado_manual: true
+      }).eq('id', 1)
+
+      // ── PASO 5: Notificar y cerrar ──
+      await notifyRankingUpdated(nuevaSemana, refreshed.slice(0, 5))
+      ntf(penaltyLog.length
+        ? `Ranking publicado. Penalizaciones por inactividad: ${penaltyLog.join(', ')}.`
+        : 'Ranking publicado. Sin penalizaciones por inactividad esta semana.')
+      load()
+
+    } catch (err) {
+      ntf('Error al publicar el ranking: ' + err.message, 'err')
+    }
   }
 
   async function undoRanking() {
