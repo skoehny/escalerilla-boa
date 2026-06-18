@@ -212,7 +212,7 @@ export default function Admin() {
   }
 
   async function publishRanking(plan) {
-    const { cfg, sim, originalPos, pending, penaltyLog } = plan
+    const { cfg, sim, originalPos, pending, penaltyLog, movements, notas } = plan
 
     // ── Persistir todo de una vez ──
     await Promise.all(sim.map(p => updatePlayer(p.id, { posicion: p.posicion, posicion_anterior: p.posicion })))
@@ -227,7 +227,8 @@ export default function Admin() {
       fecha: new Date().toISOString().split('T')[0],
       publicado_por: 'manual',
       hora_publicacion: new Date().toISOString(),
-      data: refreshed.map(p => ({ id: p.id, nombre: p.nombre, apellido: p.apellido, posicion: p.posicion, victorias: p.victorias, derrotas: p.derrotas }))
+      data: refreshed.map(p => ({ id: p.id, nombre: p.nombre, apellido: p.apellido, posicion: p.posicion, victorias: p.victorias, derrotas: p.derrotas })),
+      movimientos: { movements, notas, penaltyLog },
     }, { onConflict: 'semana' })
     // Marcar como publicado manual + avanzar semana
     const today = new Date()
