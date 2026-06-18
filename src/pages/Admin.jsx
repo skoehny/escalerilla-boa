@@ -806,7 +806,7 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
                       }
                       {c.slot_day && !c.pago_confirmado && <button className="btn btn-accept" style={{ fontSize: 12 }} onClick={() => validatePayment(c)}>Validar pago</button>}
                       <button className="btn btn-accept" style={{ fontSize: 12, borderColor: '#185FA5', color: '#185FA5' }}
-                        onClick={() => setResultModal({ ...c, challenger_id: c.challenger_id || c.challenger?.id, challenged_id: c.challenged_id || c.challenged?.id, challenger: ch, challenged: cd, score_a: '', score_b: '', tiebreak_a: '', tiebreak_b: '', slot_court: c.slot_court || courts[0]?.id || '', slot_day_edit: '', slot_hour: c.slot_hour || '18:00' })}>
+                        onClick={() => setResultModal({ ...c, challenger_id: c.challenger_id || c.challenger?.id, challenged_id: c.challenged_id || c.challenged?.id, challenger: ch, challenged: cd, score_a: '', score_b: '', tiebreak_a: '', tiebreak_b: '', slot_court: c.slot_court || courts[0]?.id || '', slot_day_edit: new Date().toLocaleDateString('en-CA'), slot_hour: c.slot_hour || '18:00' })}>
                         Ingresar resultado
                       </button>
                       <button className="btn btn-warn" style={{ fontSize: 12 }}

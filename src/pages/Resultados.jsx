@@ -322,7 +322,7 @@ export default function Resultados() {
                       </div>
                       <div className="form-row" style={{ marginBottom: 0 }}>
                         <label>Fecha *</label>
-                        <input type="date" value={slotInfo[c.id]?.day || c.slot_day || ''}
+                        <input type="date" value={slotInfo[c.id]?.day || c.slot_day || new Date().toLocaleDateString('en-CA')}
                           onChange={e => {
                             const val = e.target.value
                             setSlotInfo(s => ({ ...s, [c.id]: { ...s[c.id], day: val } }))

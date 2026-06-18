@@ -271,7 +271,7 @@ export default function Desafios() {
                 </div>
                 <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
                   <button className="btn btn-accept" style={{ fontSize: 12, padding: '4px 10px' }}
-                    onClick={() => { setPlayedModal({ id: c.id, challenger: c.challenger, challenged: c.challenged }); setPlayedData({ court: courts[0]?.id || '', day: '', hour: '18:00', sa: '', sb: '', tba: '', tbb: '' }); setPlayedError('') }}>
+                    onClick={() => { setPlayedModal({ id: c.id, challenger: c.challenger, challenged: c.challenged }); setPlayedData({ court: courts[0]?.id || '', day: new Date().toLocaleDateString('en-CA'), hour: '18:00', sa: '', sb: '', tba: '', tbb: '' }); setPlayedError('') }}>
                     Jugamos
                   </button>
                   <button className="btn btn-reject" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => { setCancelModal(c); setCancelReason(''); setCancelOther('') }}>
