@@ -219,6 +219,7 @@ export default function Desafios() {
               <select value={slotModal.court} onChange={e => setSlotModal(m => ({ ...m, court: e.target.value }))}>
                 {courts.map(c => <option key={c.id} value={c.id}>{c.nombre} ({c.surface})</option>)}
               </select>
+              {(() => { const court = slotModal.court; if (!court) return null; const isHard = court === 'c3'; return (<span style={{ fontSize: 11, color: '#888', display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 }}><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: isHard ? '#60B8E0' : '#E8712A' }} />{isHard ? 'Cancha dura' : 'Arcilla'}</span>) })()}
             </div>
             <div className="form-row"><label>Día</label>
               <input type="date" value={slotModal.day} onChange={e => setSlotModal(m => ({ ...m, day: e.target.value }))} />
@@ -456,6 +457,7 @@ export default function Desafios() {
                   <option value="">—</option>
                   {courts.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
                 </select>
+                {(() => { const court = playedData.court; if (!court) return null; const isHard = court === 'c3'; return (<span style={{ fontSize: 11, color: '#888', display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 }}><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: isHard ? '#60B8E0' : '#E8712A' }} />{isHard ? 'Cancha dura' : 'Arcilla'}</span>) })()}
               </div>
               <div className="form-row" style={{ marginBottom: 0 }}>
                 <label>Fecha *</label>
@@ -559,6 +561,7 @@ export default function Desafios() {
               <select value={slotModal.court} onChange={e => { setSlotModal(m => ({ ...m, court: e.target.value })); setSlotError('') }}>
                 {courts.map(c => <option key={c.id} value={c.id}>{c.nombre} ({c.surface})</option>)}
               </select>
+              {(() => { const court = slotModal.court; if (!court) return null; const isHard = court === 'c3'; return (<span style={{ fontSize: 11, color: '#888', display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 }}><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: isHard ? '#60B8E0' : '#E8712A' }} />{isHard ? 'Cancha dura' : 'Arcilla'}</span>) })()}
             </div>
             <div className="form-row"><label>Día</label>
               <input type="date" value={slotModal.day} onChange={e => { setSlotModal(m => ({ ...m, day: e.target.value })); setSlotError('') }} />

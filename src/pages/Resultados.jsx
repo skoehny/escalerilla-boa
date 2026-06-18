@@ -327,6 +327,7 @@ export default function Resultados() {
                           <option value="">—</option>
                           {['c1','c2','c3'].map(id => <option key={id} value={id}>{id}</option>)}
                         </select>
+                        {(() => { const court = slotInfo[c.id]?.court || c.slot_court; if (!court) return null; const isHard = court === 'c3'; return (<span style={{ fontSize: 11, color: '#888', display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 }}><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: isHard ? '#60B8E0' : '#E8712A' }} />{isHard ? 'Cancha dura' : 'Arcilla'}</span>) })()}
                       </div>
                       <div className="form-row" style={{ marginBottom: 0 }}>
                         <label>Fecha *</label>
@@ -396,6 +397,16 @@ export default function Resultados() {
 
       {activeTab === 'partidos' && <>
         <div className="section-title">Historial</div>
+        <div style={{ display: 'flex', gap: 14, fontSize: 11, color: '#888', marginBottom: 8, alignItems: 'center' }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: '#E8712A' }} />
+            Arcilla
+          </span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: '#60B8E0' }} />
+            Cancha dura
+          </span>
+        </div>
         <div className="card">
         {completed.length === 0
           ? <p style={{ fontSize: 13, color: '#888', textAlign: 'center', padding: '12px 0' }}>Sin partidos jugados aún</p>

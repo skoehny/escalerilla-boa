@@ -955,6 +955,7 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
                   <option value="">—</option>
                   {courts.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
                 </select>
+                {(() => { const court = resultModal.slot_court; if (!court) return null; const isHard = court === 'c3'; return (<span style={{ fontSize: 11, color: '#888', display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 }}><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: isHard ? '#60B8E0' : '#E8712A' }} />{isHard ? 'Cancha dura' : 'Arcilla'}</span>) })()}
               </div>
               <div className="form-row" style={{ marginBottom: 0 }}>
                 <label>Fecha *</label>
@@ -1082,6 +1083,7 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
                 <option value="">Sin especificar</option>
                 {courts.map(c => <option key={c.id} value={c.id}>{c.nombre} ({c.surface})</option>)}
               </select>
+              {(() => { const court = editResultModal.slot_court; if (!court) return null; const isHard = court === 'c3'; return (<span style={{ fontSize: 11, color: '#888', display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 }}><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: isHard ? '#60B8E0' : '#E8712A' }} />{isHard ? 'Cancha dura' : 'Arcilla'}</span>) })()}
             </div>
             <div className="form-row"><label>Fecha (dejar vacío para no cambiar)</label>
               <input type="date" value={(() => {
@@ -1109,6 +1111,7 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
               <select value={slotModal.court} onChange={e => setSlotModal(s => ({ ...s, court: e.target.value }))}>
                 {courts.map(c => <option key={c.id} value={c.id}>{c.nombre} ({c.surface})</option>)}
               </select>
+              {(() => { const court = slotModal.court; if (!court) return null; const isHard = court === 'c3'; return (<span style={{ fontSize: 11, color: '#888', display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 }}><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: isHard ? '#60B8E0' : '#E8712A' }} />{isHard ? 'Cancha dura' : 'Arcilla'}</span>) })()}
             </div>
             <div className="form-row"><label>Día</label>
               <input type="date" value={slotModal.day} onChange={e => setSlotModal(s => ({ ...s, day: e.target.value }))} />
@@ -1143,6 +1146,7 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
               <select value={editSlotModal.court || ''} onChange={e => setEditSlotModal(m => ({ ...m, court: e.target.value }))}>
                 {courts.map(c => <option key={c.id} value={c.id}>{c.nombre} ({c.surface})</option>)}
               </select>
+              {(() => { const court = editSlotModal.court; if (!court) return null; const isHard = court === 'c3'; return (<span style={{ fontSize: 11, color: '#888', display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 }}><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: isHard ? '#60B8E0' : '#E8712A' }} />{isHard ? 'Cancha dura' : 'Arcilla'}</span>) })()}
             </div>
             <div className="form-row"><label>Nuevo día (dejar vacío para mantener)</label>
               <input type="date" value={editSlotModal.day || ''} onChange={e => setEditSlotModal(m => ({ ...m, day: e.target.value }))} />
@@ -1189,6 +1193,7 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
                 <option value="">Sin asignar</option>
                 {courts.map(c => <option key={c.id} value={c.id}>{c.nombre} ({c.surface})</option>)}
               </select>
+              {(() => { const court = newChallengeModal.court; if (!court) return null; const isHard = court === 'c3'; return (<span style={{ fontSize: 11, color: '#888', display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 }}><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: isHard ? '#60B8E0' : '#E8712A' }} />{isHard ? 'Cancha dura' : 'Arcilla'}</span>) })()}
             </div>
             {newChallengeModal.court && <>
               <div className="form-row"><label>Día</label>
@@ -1379,6 +1384,7 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
                 <option value="">Sin especificar</option>
                 {courts.map(c => <option key={c.id} value={c.id}>{c.nombre} ({c.surface})</option>)}
               </select>
+              {(() => { const court = historialModal.court; if (!court) return null; const isHard = court === 'c3'; return (<span style={{ fontSize: 11, color: '#888', display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 }}><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: isHard ? '#60B8E0' : '#E8712A' }} />{isHard ? 'Cancha dura' : 'Arcilla'}</span>) })()}
             </div>
             <div className="form-row"><label>Fecha</label><input type="date" value={historialModal.date} onChange={e => setHistorialModal(m => ({ ...m, date: e.target.value }))} /></div>
             <div className="modal-actions">
