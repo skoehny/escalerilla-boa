@@ -14,6 +14,7 @@ import JugadorPerfil from './pages/JugadorPerfil'
 import Reglamento  from './pages/Reglamento'
 import Layout      from './components/Layout'
 import AutoRefresh from './components/AutoRefresh'
+import PullToRefresh from './components/PullToRefresh'
 import { SessionProvider, useSession } from './components/SessionContext'
 
 function ProtectedRoute({ children }) {
@@ -53,6 +54,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     <BrowserRouter>
       <SessionProvider>
         <AutoRefresh />
+        <PullToRefresh />
         <AppRoutes />
       </SessionProvider>
     </BrowserRouter>
