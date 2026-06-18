@@ -47,6 +47,7 @@ export default function Resultados() {
   const [activeTab, setActiveTab] = useState('partidos')
   const [rankingHistory, setRankingHistory] = useState([])
   const [selectedWeekIdx, setSelectedWeekIdx] = useState(0)
+  const [movDetail, setMovDetail] = useState(null)
 
   useEffect(() => { load() }, [])
 
@@ -247,6 +248,13 @@ export default function Resultados() {
                       <div style={{ fontSize: 13, fontWeight: 500 }}>Semana {week.semana}</div>
                       <div style={{ fontSize: 11, color: '#888' }}>{week.fecha}</div>
                       {selectedWeekIdx === 0 && <span className="badge badge-green" style={{ fontSize: 10 }}>Última</span>}
+                      {week.movimientos && (week.movimientos.movements?.length > 0 || week.movimientos.notas?.length > 0) && (
+                        <button className="btn" style={{ fontSize: 11, padding: '2px 8px', marginTop: 4 }}
+                          onClick={() => setMovDetail(week)}>
+                          <i className="ti ti-info-circle" style={{ verticalAlign: -2, marginRight: 3 }} aria-hidden="true" />
+                          ¿Por qué estos cambios?
+                        </button>
+                      )}
                     </div>
                     <button className="btn" style={{ fontSize: 12, padding: '4px 10px' }}
                       onClick={() => setSelectedWeekIdx(i => Math.max(i - 1, 0))}
@@ -478,6 +486,49 @@ export default function Resultados() {
         }
         </div>
       </>}
+
+      {movDetail && (
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setMovDetail(null) }}>
+          <div className="modal" style={{ maxHeight: '80vh', overflowY: 'auto' }}>
+            <h3>Movimientos — Semana {movDetail.semana}</h3>
+            <p style={{ fontSize: 12, color: '#888', marginBottom: 12 }}>{movDetail.fecha}</p>
+
+            {movDetail.movimientos?.movements?.length > 0 ? (
+              <div style={{ marginBottom: 10 }}>
+                {movDetail.movimientos.movements.map((m, i) => (
+                  <div key={i} style={{ display: 'flex', gap: 8, padding: '7px 0', borderBottom: '0.5px solid #eee', alignItems: 'flex-start' }}>
+                    <span style={{ fontSize: 12, fontWeight: 500, color: m.delta > 0 ? '#3B6D11' : '#A32D2D', flexShrink: 0, width: 30 }}>
+                      {m.delta > 0 ? `↑${m.delta}` : `↓${Math.abs(m.delta)}`}
+                    </span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 500 }}>{m.nombre} <span style={{ color: '#888', fontWeight: 400 }}>#{m.desde} → #{m.hasta}</span></div>
+                      <div style={{ fontSize: 12, color: '#888', marginTop: 1 }}>{m.motivo}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p style={{ fontSize: 13, color: '#888', marginBottom: 10 }}>Sin cambios de posición esta semana.</p>
+            )}
+
+            {movDetail.movimientos?.notas?.length > 0 && (
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 12, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>Notas</div>
+                {movDetail.movimientos.notas.map((n, i) => (
+                  <div key={i} style={{ fontSize: 12, color: '#666', padding: '4px 0', display: 'flex', gap: 6 }}>
+                    <i className="ti ti-info-circle" style={{ fontSize: 14, flexShrink: 0, marginTop: 1, color: '#888' }} aria-hidden="true" />
+                    <span>{n}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="modal-actions">
+              <button className="btn btn-accept" onClick={() => setMovDetail(null)}>Cerrar</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
