@@ -370,13 +370,9 @@ export default function Admin() {
     if (!slotModal?.court || !slotModal?.hour) { ntf('Selecciona cancha y hora.', 'warn'); return }
     const c = slotModal.challenge
     const deadline = getNextWednesday()
-    let slotDay = slotModal.day
-    if (slotDay && slotDay.includes('-')) {
-      const d = new Date(slotDay + 'T12:00:00')
-      slotDay = d.toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' })
-    }
-    await updateChallenge(c.id, { slot_court: slotModal.court, slot_day: slotDay || fmtDate(deadline), slot_hour: slotModal.hour, pago_confirmado: slotModal.paid })
-    if (slotModal.paid) await confirmSlotPayment(slotModal.court, slotDay || fmtDate(deadline), slotModal.hour)
+    const slotDay = slotModal.day || null
+    await updateChallenge(c.id, { slot_court: slotModal.court, slot_day: slotDay || deadline, slot_hour: slotModal.hour, pago_confirmado: slotModal.paid })
+    if (slotModal.paid) await confirmSlotPayment(slotModal.court, slotDay || deadline, slotModal.hour)
     setSlotModal(null)
     ntf('Cancha asignada.')
     load()
@@ -416,11 +412,7 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
   async function saveEditSlot() {
     const m = editSlotModal
     try {
-      let slotDay = m.day
-      if (slotDay && slotDay.includes('-')) {
-        const d = new Date(slotDay + 'T12:00:00')
-        slotDay = d.toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' })
-      }
+      const slotDay = m.day || null
       await updateChallenge(m.id, { slot_court: m.court, slot_day: slotDay || m.currentDay, slot_hour: m.hour, pago_confirmado: m.paid })
       setEditSlotModal(null)
       ntf('Partido actualizado.')
@@ -446,11 +438,7 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
     }
     try {
       const deadline = getNextWednesday()
-      let slotDay = null
-      if (m.day) {
-        const d = new Date(m.day + 'T12:00:00')
-        slotDay = d.toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' })
-      }
+      const slotDay = m.day || null
       const { error } = await supabase.from('challenges').insert({
         challenger_id: m.challenger_id,
         challenged_id: m.challenged_id,
@@ -511,13 +499,7 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
     const finalDay = m.slot_day_edit || m.slot_day || null
     if (!finalDay) { ntf('Ingresa la fecha del partido.', 'err'); return }
     if (!m.slot_hour) { ntf('Ingresa la hora del partido.', 'err'); return }
-    const slotDay = (() => {
-      if (m.slot_day_edit && m.slot_day_edit.includes('-')) {
-        const dt = new Date(m.slot_day_edit + 'T12:00:00')
-        return dt.toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' })
-      }
-      return finalDay
-    })()
+    const slotDay = m.slot_day_edit || finalDay
     const winner = sa > sb ? 'challenger' : 'challenged'
     const ch = players.find(p => p.id === m.challenger_id)
     const cd = players.find(p => p.id === m.challenged_id)
@@ -610,7 +592,7 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
       status: 'completed', score_a: parseInt(h.score_a), score_b: parseInt(h.score_b),
       ganador: parseInt(h.score_a) > parseInt(h.score_b) ? 'challenger' : 'challenged',
       slot_court: h.court || null,
-      slot_day: h.date ? fmtDate(h.date) : null,
+      slot_day: h.date || null,
       created_at: h.date ? new Date(h.date + 'T12:00:00').toISOString() : new Date().toISOString(),
       pago_confirmado: true,
     })
@@ -688,7 +670,7 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
               active.forEach(c => {
                 const ch = players.find(p => p.id === c.challenger_id)
                 const cd = players.find(p => p.id === c.challenged_id)
-                msg += `• ${nm(ch)} vs ${nm(cd)}${c.slot_day ? ` — ${c.slot_day}${c.slot_hour ? ', ' + c.slot_hour : ''}` : ' — acordando día'}\n`
+                msg += `• ${nm(ch)} vs ${nm(cd)}${c.slot_day ? ` — ${fmtDate(c.slot_day)}${c.slot_hour ? ', ' + c.slot_hour : ''}` : ' — acordando día'}\n`
               })
               msg += '\n'
             }
@@ -798,7 +780,7 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
                   <div key={c.id} style={{ borderBottom: '0.5px solid #f0efe8', paddingBottom: 10, marginBottom: 10 }}>
                     <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>{ch?.nombre} {ch?.apellido} vs {cd?.nombre} {cd?.apellido}</div>
                     <div style={{ fontSize: 11, color: '#888', marginBottom: 8 }}>
-                      {c.slot_day ? `${court?.nombre || c.slot_court} · ${c.slot_day} · ${c.slot_hour} · ${c.pago_confirmado ? '✓ Pago ok' : 'Pago pendiente'}` : `Sin cancha · vence ${fmtDate(c.deadline)}`}
+                      {c.slot_day ? `${court?.nombre || c.slot_court} · ${fmtDate(c.slot_day)} · ${c.slot_hour} · ${c.pago_confirmado ? '✓ Pago ok' : 'Pago pendiente'}` : `Sin cancha · vence ${fmtDate(c.deadline)}`}
                       {c.reagendado ? ' · ⚠️ Reagendado' : ''}
                     </div>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -1106,7 +1088,7 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
                 return d
               })()} 
                 onChange={e => setEditResultModal(m => ({ ...m, slot_day_edit: e.target.value }))} />
-              {editResultModal.slot_day && <div style={{ fontSize: 11, color: '#888', marginTop: 3 }}>Fecha actual: {editResultModal.slot_day}</div>}
+              {editResultModal.slot_day && <div style={{ fontSize: 11, color: '#888', marginTop: 3 }}>Fecha actual: {fmtDate(editResultModal.slot_day)}</div>}
             </div>
             <div className="modal-actions">
               <button className="btn" onClick={() => setEditResultModal(null)}>Cancelar</button>

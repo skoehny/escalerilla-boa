@@ -81,8 +81,10 @@ export default function Perfil() {
 
   function fmtDate(d) {
     if (!d) return ''
-    try { return new Date(d).toLocaleDateString('es-CL', { day: 'numeric', month: 'short', year: 'numeric' }) }
-    catch { return d }
+    try {
+      const dt = (typeof d === 'string' && d.length === 10 && d.includes('-')) ? new Date(d + 'T12:00:00') : new Date(d)
+      return dt.toLocaleDateString('es-CL', { day: 'numeric', month: 'short', year: 'numeric' })
+    } catch { return d }
   }
 
   return (

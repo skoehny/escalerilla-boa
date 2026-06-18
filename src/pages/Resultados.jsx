@@ -5,8 +5,10 @@ import { useSession } from '../components/SessionContext'
 
 function fmtDate(d) {
   if (!d) return ''
-  try { return new Date(d).toLocaleDateString('es-CL', { day: 'numeric', month: 'short' }) }
-  catch { return d }
+  try {
+    const dt = (typeof d === 'string' && d.length === 10 && d.includes('-')) ? new Date(d + 'T12:00:00') : new Date(d)
+    return dt.toLocaleDateString('es-CL', { day: 'numeric', month: 'short' })
+  } catch { return d }
 }
 
 
@@ -433,7 +435,7 @@ export default function Resultados() {
                     {c.resultado_validado && <span className="badge badge-green" style={{ fontSize: 10, flexShrink: 0 }}>✓</span>}
                     <span className="badge badge-green" style={{ flexShrink: 0 }}>{w?.nombre}</span>
                     {c.slot_court && <span style={{ marginLeft: 4 }}>{courtDot(c.slot_court)}</span>}
-                    <span style={{ fontSize: 11, color: '#888', marginLeft: 4, flexShrink: 0 }}>{c.slot_day || fmtDate(c.created_at)}</span>
+                    <span style={{ fontSize: 11, color: '#888', marginLeft: 4, flexShrink: 0 }}>{fmtDate(c.slot_day) || fmtDate(c.created_at)}</span>
                     {canValidate(c) && !isEditing && (
                       <button className="btn btn-accept" style={{ fontSize: 11, padding: '2px 8px', marginLeft: 4 }}
                         onClick={() => validateResult(c)}>

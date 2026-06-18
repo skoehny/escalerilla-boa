@@ -17,16 +17,18 @@ function statusText(c) {
   if (!c) return ''
   if (c.status === 'pending') return 'Desafío pendiente de aceptación'
   if (c.status === 'accepted' && !c.slot_day) return 'Acordando día'
-  if (c.status === 'accepted' && c.slot_day && !c.pago_confirmado) return `Cancha reservada · ${c.slot_day} ${c.slot_hour || ''}`
-  if (c.status === 'accepted' && c.pago_confirmado) return `Listo para jugar · ${c.slot_day} ${c.slot_hour || ''}`
+  if (c.status === 'accepted' && c.slot_day && !c.pago_confirmado) return `Cancha reservada · ${fmtDate(c.slot_day)} ${c.slot_hour || ''}`
+  if (c.status === 'accepted' && c.pago_confirmado) return `Listo para jugar · ${fmtDate(c.slot_day)} ${c.slot_hour || ''}`
   if (c.status === 'completed') return `Jugado: ${c.score_a}–${c.score_b}`
   return ''
 }
 
 function fmtDate(d) {
   if (!d) return ''
-  try { return new Date(d).toLocaleDateString('es-CL', { day: 'numeric', month: 'short' }) }
-  catch { return d }
+  try {
+    const dt = (typeof d === 'string' && d.length === 10 && d.includes('-')) ? new Date(d + 'T12:00:00') : new Date(d)
+    return dt.toLocaleDateString('es-CL', { day: 'numeric', month: 'short' })
+  } catch { return d }
 }
 
 function courtDot(courtId) {

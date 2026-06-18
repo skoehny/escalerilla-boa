@@ -60,11 +60,7 @@ export default function Desafios() {
     const m = slotModal
     if (!m.court || !m.day || !m.hour) { setSlotError('Completa cancha, día y hora.'); return }
     try {
-      let slotDay = m.day
-      if (slotDay.includes('-') && slotDay.length === 10) {
-        const d = new Date(slotDay + 'T12:00:00')
-        slotDay = d.toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' })
-      }
+      const slotDay = m.day
       const ch = challenges.find(x => x.id === m.id)
       const slotStatus = ch?.pago_confirmado ? 'confirmed' : 'reserved'
       // Liberar bloques anteriores (si es edición de una reserva existente)
@@ -133,13 +129,7 @@ export default function Desafios() {
     if (scoreA === scoreB) { setPlayedError('No puede terminar empatado.'); return }
     const isTB = (scoreA === 9 && scoreB === 8) || (scoreA === 8 && scoreB === 9)
     if (isTB && (isNaN(parseInt(tba)) || isNaN(parseInt(tbb)))) { setPlayedError('Ingresa el marcador del tiebreak.'); return }
-    const slotDay = (() => {
-      if (day.includes('-') && day.length === 10) {
-        const dt = new Date(day + 'T12:00:00')
-        return dt.toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' })
-      }
-      return day
-    })()
+    const slotDay = day
     try {
       await updateChallenge(playedModal.id, {
         status: 'completed',
@@ -194,7 +184,7 @@ export default function Desafios() {
             <div key={c.id} style={{ borderBottom: '0.5px solid #f0efe8', paddingBottom: 10, marginBottom: 10 }}>
               <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>{c.challenger?.nombre} vs {c.challenged?.nombre}</div>
               <div style={{ fontSize: 11, color: '#888', marginBottom: 8 }}>
-                {c.slot_day ? `${c.slot_court} · ${c.slot_day} · ${c.slot_hour} · ${c.pago_confirmado ? '✓ Pago ok' : 'Pago pendiente'}` : 'Sin cancha · vence ' + fmtDate(c.deadline)}
+                {c.slot_day ? `${c.slot_court} · ${fmtDate(c.slot_day)} · ${c.slot_hour} · ${c.pago_confirmado ? '✓ Pago ok' : 'Pago pendiente'}` : 'Sin cancha · vence ' + fmtDate(c.deadline)}
               </div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {!c.slot_day
@@ -365,7 +355,7 @@ export default function Desafios() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 13, fontWeight: 500 }}>
-                      {myActive.slot_court} · {myActive.slot_day} · {myActive.slot_hour}
+                      {myActive.slot_court} · {fmtDate(myActive.slot_day)} · {myActive.slot_hour}
                     </div>
                     <div style={{ fontSize: 12, color: myActive.pago_confirmado ? '#3B6D11' : '#888', marginTop: 2 }}>
                       {myActive.pago_confirmado
@@ -406,7 +396,7 @@ export default function Desafios() {
                 </span>
                 <span className={`badge ${bCls[step] || 'badge-gray'}`}>{labels[step] || ''}</span>
                 {c.slot_day
-                  ? <span style={{ fontSize: 11, color: '#888', marginLeft: 8 }}>{c.slot_day}{c.slot_hour ? ` · ${c.slot_hour}` : ''}</span>
+                  ? <span style={{ fontSize: 11, color: '#888', marginLeft: 8 }}>{fmtDate(c.slot_day)}{c.slot_hour ? ` · ${c.slot_hour}` : ''}</span>
                   : c.deadline && <span style={{ fontSize: 11, color: '#A32D2D', marginLeft: 8 }}>vence {fmtDate(c.deadline)}</span>
                 }
               </div>
