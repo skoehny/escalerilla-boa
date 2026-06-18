@@ -200,9 +200,6 @@ export default function Resultados() {
       if (loserFull) await import('../lib/supabase').then(m => m.updatePlayer(loserFull.id, { derrotas: (loserFull.derrotas || 0) + 1 }))
 
       await notifyResult(c.challenger, c.challenged, sa, sb, winnerP, null)
-      const tbStr = isTB ? ` (${tbA}-${tbB})` : ''
-      const waText = `🎾 *Escalerilla BOA*\n\n✅ Resultado: ${c.challenger?.nombre} ${sa}-${sb}${tbStr} ${c.challenged?.nombre}\nGana: ${winnerP?.nombre}\n\nVer resultados: https://escalerilla-boa.vercel.app`
-      window.open(`https://wa.me/?text=${encodeURIComponent(waText)}`, '_blank')
       // Refrescar sesión del jugador actual
       const { data: freshPlayer } = await supabase.from('players').select('*').eq('id', player.id).single()
       if (freshPlayer) updateSession(freshPlayer)
@@ -417,7 +414,7 @@ export default function Resultados() {
                     {c.resultado_validado && <span className="badge badge-green" style={{ fontSize: 10, flexShrink: 0 }}>✓</span>}
                     <span className="badge badge-green" style={{ flexShrink: 0 }}>{w?.nombre}</span>
                     {c.slot_court && <span style={{ marginLeft: 4 }}>{courtDot(c.slot_court)}</span>}
-                    <span style={{ fontSize: 11, color: '#888', marginLeft: 4, flexShrink: 0 }}>{fmtDate(c.created_at)}</span>
+                    <span style={{ fontSize: 11, color: '#888', marginLeft: 4, flexShrink: 0 }}>{c.slot_day || fmtDate(c.created_at)}</span>
                     {canValidate(c) && !isEditing && (
                       <button className="btn btn-accept" style={{ fontSize: 11, padding: '2px 8px', marginLeft: 4 }}
                         onClick={() => validateResult(c)}>
