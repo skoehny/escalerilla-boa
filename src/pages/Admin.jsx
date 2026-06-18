@@ -210,6 +210,12 @@ export default function Admin() {
   }
 
   async function publishRanking(plan) {
+    // TEMPORAL: solo SKY puede publicar el ranking ─── borrar cuando se habilite a todos
+    if (sessionPlayer?.email?.trim().toLowerCase() !== 'skoehny@gmail.com') {
+      ntf('Esta acción debe ser revisada por SKY', 'err')
+      return
+    }
+    // ───────────────────────────────────────────────────────────────────────────
     const { cfg, sim, originalPos, pending, penaltyLog, movements, notas, nuevasSemanas } = plan
     const refreshed = sim
     const nuevaSemana = (cfg?.semana || 0) + 1
