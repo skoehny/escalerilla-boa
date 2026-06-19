@@ -4,7 +4,7 @@ import { useSession } from './SessionContext'
 
 function ini(n, a) { return ((n?.[0] || '') + (a?.[0] || '')).toUpperCase() }
 
-const THRESHOLD = 80
+const THRESHOLD = 120
 const RESISTANCE = 0.45
 
 async function hardRefresh() {
@@ -28,6 +28,7 @@ export default function Layout() {
   useEffect(() => {
     function onTouchStart(e) {
       if (window.scrollY > 0) return
+      if (document.querySelector('.modal-overlay')) return
       s.current.startY = e.touches[0].clientY
       s.current.startX = e.touches[0].clientX
       s.current.active = true
