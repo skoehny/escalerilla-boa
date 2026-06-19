@@ -15,9 +15,10 @@ function fmtShortDate(d) {
 
 function playerInactivity(p, fechaInicio) {
   if (!p.semanas_inactivo) return null
-  const dias = fechaInicio
-    ? Math.floor((new Date() - new Date(fechaInicio + 'T12:00:00')) / (1000 * 60 * 60 * 24))
-    : 0
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0)
+  const inicio = fechaInicio ? new Date(fechaInicio + 'T00:00:00') : null
+  if (inicio) inicio.setHours(0, 0, 0, 0)
+  const dias = inicio ? Math.round((hoy - inicio) / (1000 * 60 * 60 * 24)) : 0
   return `${p.semanas_inactivo}S ${dias}D`
 }
 
