@@ -666,6 +666,26 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
       {/* ACCIONES */}
       {activeTab === 'acciones' && (
         <div>
+          {pinResetRequests.length > 0 && (
+            <div style={{ marginBottom: 14 }}>
+              <div className="section-title">
+                Solicitudes de reset de PIN <span className="badge badge-red">{pinResetRequests.length}</span>
+              </div>
+              <div className="card">
+                {pinResetRequests.map(p => (
+                  <div key={p.id} className="row-item">
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 500 }}>{p.nombre} {p.apellido}</div>
+                      <div style={{ fontSize: 11, color: '#888' }}>+56 {p.telefono}</div>
+                    </div>
+                    <button className="btn btn-warn" style={{ fontSize: 12 }} onClick={() => resetPlayerPin(p)}>
+                      Resetear PIN
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="card" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', padding: '10px 12px' }}>
             <button className="btn btn-accept" onClick={async () => {
               const day = new Date().getDay()
@@ -754,27 +774,6 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
               </div>
             ))}
           </div>
-
-          {pinResetRequests.length > 0 && (
-            <div style={{ marginBottom: 14 }}>
-              <div className="section-title">
-                Solicitudes de reset de PIN <span className="badge badge-red">{pinResetRequests.length}</span>
-              </div>
-              <div className="card">
-                {pinResetRequests.map(p => (
-                  <div key={p.id} className="row-item">
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 13, fontWeight: 500 }}>{p.nombre} {p.apellido}</div>
-                      <div style={{ fontSize: 11, color: '#888' }}>+56 {p.telefono}</div>
-                    </div>
-                    <button className="btn btn-warn" style={{ fontSize: 12 }} onClick={() => resetPlayerPin(p)}>
-                      Resetear PIN
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
 
           {pendingActivation.length > 0 && <>
             <div style={{ fontSize: 12, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', margin: '14px 0 8px' }}>Activar jugadores ({pendingActivation.length})</div>
@@ -1497,6 +1496,21 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
             <div className="form-row" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <input type="checkbox" id="wc-check" checked={editPlayerModal.wildcard_usada || false} onChange={e => setEditPlayerModal(m => ({ ...m, wildcard_usada: e.target.checked }))} style={{ width: 16, height: 16 }} />
               <label htmlFor="wc-check" style={{ fontSize: 13, color: '#333', marginBottom: 0 }}>Wild Card usada {editPlayerModal.wildcard_usada ? '(marcar para quitar)' : '(marcar para registrar como usada)'}</label>
+            </div>
+            <div style={{ borderTop: '0.5px solid #e0dfd8', marginTop: 14, paddingTop: 12 }}>
+              <button
+                className="btn btn-warn"
+                style={{ fontSize: 12, width: '100%' }}
+                onClick={() => {
+                  if (confirm(`¿Resetear el PIN de ${editPlayerModal.nombre} ${editPlayerModal.apellido}? Deberá crear uno nuevo al ingresar.`)) {
+                    resetPlayerPin(editPlayerModal)
+                    setEditPlayerModal(null)
+                  }
+                }}
+              >
+                <i className="ti ti-key" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />
+                Resetear PIN
+              </button>
             </div>
             <div className="modal-actions">
               <button className="btn" onClick={() => setEditPlayerModal(null)}>Cancelar</button>
