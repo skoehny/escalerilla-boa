@@ -339,9 +339,11 @@ export default function Desafios() {
                     <i className="ti ti-brand-whatsapp" style={{ fontSize: 15 }} aria-hidden="true" />
                     Abrir grupo BOA
                   </a>
-                  <a href="/canchas" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8, border: '0.5px solid #ccc', color: '#333', fontSize: 12, textDecoration: 'none' }}>
-                    Ver canchas disponibles →
-                  </a>
+                  <button className="btn" style={{ fontSize: 12, padding: '6px 12px' }}
+                    onClick={() => { setSlotModal({ id: myActive.id, court: courts[0]?.id || '', day: '', hour: '18:00' }); setSlotError('') }}>
+                    <i className="ti ti-tennis" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />
+                    Reservar cancha
+                  </button>
                   <button className="btn btn-reject" style={{ fontSize: 12, padding: '6px 12px' }}
                     onClick={() => { setCancelModal(myActive); setCancelReason(''); setCancelOther('') }}>
                     Cancelar desafío
