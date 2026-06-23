@@ -3,8 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import { useSession } from '../components/SessionContext'
 import { supabase } from '../lib/supabase'
 
-const WA_GROUP = import.meta.env.VITE_WA_GROUP || 'https://chat.whatsapp.com/XXXXXXXXXXXXXXX'
-
 // Pasos: 'phone' → 'complete' (primer ingreso) | 'pin' (ya registrado) | 'done'
 export default function Auth() {
   const [step, setStep] = useState('phone')
@@ -23,6 +21,7 @@ export default function Auth() {
   const [loginPin, setLoginPin] = useState('')
   const [showLoginPin, setShowLoginPin] = useState(false)
   const [pinResetSent, setPinResetSent] = useState(false)
+  const [pinResetCopied, setPinResetCopied] = useState(false)
 
   const { login } = useSession()
   const navigate = useNavigate()
@@ -97,11 +96,16 @@ export default function Auth() {
     try {
       const { error } = await supabase.rpc('solicitar_reset_pin', { p_id: player.id })
       if (error) throw error
-      const msg = encodeURIComponent(`Hola administrador, olvidé mi PIN en la Escalerilla BOA y necesito resetearlo. Soy ${player.nombre} ${player.apellido}.`)
-      window.open(`https://wa.me/56974790352?text=${msg}`, '_blank')
+      const msg = `Hola administrador, olvidé mi PIN en la Escalerilla BOA y necesito resetearlo. Soy ${player.nombre} ${player.apellido}.`
+      if (navigator.share) {
+        await navigator.share({ text: msg })
+      } else {
+        await navigator.clipboard.writeText(msg)
+        setPinResetCopied(true)
+      }
       setPinResetSent(true)
-    } catch {
-      setError('No se pudo enviar la solicitud. Intenta de nuevo.')
+    } catch (err) {
+      if (err?.name !== 'AbortError') setError('No se pudo enviar la solicitud. Intenta de nuevo.')
     }
   }
 
@@ -277,19 +281,15 @@ export default function Auth() {
               </button>
             ) : (
               <div className="notif notif-ok" style={{ marginTop: 10, fontSize: 12 }}>
-                <i className="ti ti-check" aria-hidden="true" /> Solicitud enviada. El administrador reseteará tu PIN y podrás crear uno nuevo al volver a entrar.
+                <i className="ti ti-check" aria-hidden="true" />
+                {pinResetCopied
+                  ? ' Solicitud registrada. Mensaje copiado — envíaselo al admin por WhatsApp. Cuando lo resetee, podrás crear un PIN nuevo.'
+                  : ' Solicitud enviada. El administrador reseteará tu PIN y podrás crear uno nuevo al volver a entrar.'}
               </div>
             )}
           </form>
         )}
 
-        <div style={{ textAlign: 'center', marginTop: 16 }}>
-          <a href={WA_GROUP} target="_blank" rel="noreferrer"
-            style={{ fontSize: 12, color: '#1D9E75', textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
-            <i className="ti ti-brand-whatsapp" style={{ fontSize: 14 }} aria-hidden="true" />
-            Grupo BOA en WhatsApp
-          </a>
-        </div>
       </div>
     </div>
   )
