@@ -19,7 +19,7 @@ export default function Perfil() {
   const { player, updateSession, logout } = useSession()
   const navigate = useNavigate()
   const [editing, setEditing] = useState(false)
-  const [form, setForm] = useState({ nombre: player?.nombre || '', apellido: player?.apellido || '', email: player?.email || '', telefono: player?.telefono || '' })
+  const [form, setForm] = useState({ nombre: player?.nombre || '', apellido: player?.apellido || '', email: player?.email || '' })
   const [pinForm, setPinForm] = useState({ current: '', new: '', confirm: '' })
   const [showPin, setShowPin] = useState(false)
   const [history, setHistory] = useState([])
@@ -45,7 +45,7 @@ export default function Perfil() {
     try {
       const { data, error } = await supabase.from('players').update({
         nombre: form.nombre.trim(), apellido: form.apellido.trim(),
-        email: form.email.trim(), telefono: form.telefono.replace(/\s/g, ''),
+        email: form.email.trim(),
       }).eq('id', player.id).select().single()
       if (error) throw error
       updateSession(data)
@@ -140,10 +140,8 @@ export default function Perfil() {
           <div className="form-row"><label>Email</label><input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} /></div>
           <div className="form-row">
             <label>Teléfono</label>
-            <div style={{ display: 'flex', gap: 6 }}>
-              <span style={{ display: 'flex', alignItems: 'center', padding: '0 10px', background: '#f5f4f0', border: '0.5px solid #ccc', borderRadius: 8, fontSize: 13, color: '#888', whiteSpace: 'nowrap', height: 36 }}>🇨🇱 +56</span>
-              <input value={form.telefono} onChange={e => setForm(f => ({ ...f, telefono: e.target.value.replace(/[^0-9]/g, '') }))} style={{ flex: 1 }} />
-            </div>
+            <input value={`🇨🇱 +56 ${player?.telefono || ''}`} disabled style={{ background: '#f5f4f0', color: '#888', cursor: 'not-allowed' }} />
+            <div style={{ fontSize: 11, color: '#888', marginTop: 3 }}>Solo el administrador puede modificar tu teléfono</div>
           </div>
           {/* Posición — solo lectura para jugadores */}
           <div className="form-row">
