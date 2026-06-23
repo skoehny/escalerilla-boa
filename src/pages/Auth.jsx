@@ -95,7 +95,8 @@ export default function Auth() {
 
   async function handleForgotPin() {
     try {
-      await supabase.from('players').update({ pin_reset_solicitado: true }).eq('id', player.id)
+      const { error } = await supabase.rpc('solicitar_reset_pin', { p_id: player.id })
+      if (error) throw error
       const msg = encodeURIComponent(`Hola administrador, olvidé mi PIN en la Escalerilla BOA y necesito resetearlo. Soy ${player.nombre} ${player.apellido}.`)
       window.open(`https://wa.me/56974790352?text=${msg}`, '_blank')
       setPinResetSent(true)
