@@ -6,7 +6,6 @@ import './index.css'
 import Auth        from './pages/Auth'
 import Ranking     from './pages/Ranking'
 import Desafios    from './pages/Desafios'
-import Canchas     from './pages/Canchas'
 import Resultados  from './pages/Resultados'
 import Admin       from './pages/Admin'
 import Perfil      from './pages/Perfil'
@@ -36,7 +35,6 @@ function AppRoutes() {
       <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
         <Route index element={<Ranking />} />
         <Route path="desafios"   element={<Desafios />} />
-        <Route path="canchas"    element={<Canchas />} />
         <Route path="resultados" element={<Resultados />} />
         <Route path="perfil"     element={<Perfil />} />
         <Route path="jugador/:id" element={<JugadorPerfil />} />

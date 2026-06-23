@@ -44,7 +44,6 @@ export default function Desafios() {
   const [cancelModal, setCancelModal] = useState(null)  // challenge a cancelar
   const [cancelReason, setCancelReason] = useState('')
   const [cancelOther, setCancelOther] = useState('')
-  const isAdminCanchas = player?.es_admin_canchas
 
   useEffect(() => { load() }, [])
 
@@ -81,23 +80,6 @@ export default function Desafios() {
     } catch (err) { ntf(err.message, 'err') }
   }
 
-  async function releaseSlot(c) {
-    try {
-      await supabase.from('slots').delete().eq('challenge_id', c.id)
-      await updateChallenge(c.id, { slot_court: null, slot_day: null, slot_hour: null, pago_confirmado: false })
-      ntf('Cancha liberada. El desafío sigue activo.', 'warn')
-      load()
-    } catch (err) { ntf(err.message, 'err') }
-  }
-
-  async function confirmPaymentCanchas(c) {
-    try {
-      await updateChallenge(c.id, { pago_confirmado: true })
-      await supabase.from('slots').update({ status: 'confirmed' }).eq('challenge_id', c.id)
-      ntf('Pago confirmado.')
-      load()
-    } catch (err) { ntf(err.message, 'err') }
-  }
 
   function ntf(msg, type = 'ok') {
     setNotif({ msg, type })
@@ -172,63 +154,6 @@ export default function Desafios() {
 
   if (loading) return <p style={{ color: '#888', fontSize: 13, padding: 24 }}>Cargando...</p>
 
-  // ── Vista Karla (admin canchas) ──────────────────────────
-  if (isAdminCanchas) return (
-    <div>
-      {notif && <div className={`notif notif-${notif.type}`}><i className={`ti ti-${notif.type === 'ok' ? 'check' : 'alert-triangle'}`} aria-hidden="true" /> {notif.msg}</div>}
-      <div className="section-title">Desafíos activos</div>
-      <div className="card">
-        {allActive.length === 0
-          ? <p style={{ fontSize: 13, color: '#888', textAlign: 'center', padding: '14px 0' }}>Sin desafíos activos</p>
-          : allActive.map(c => (
-            <div key={c.id} style={{ borderBottom: '0.5px solid #f0efe8', paddingBottom: 10, marginBottom: 10 }}>
-              <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>{c.challenger?.nombre} vs {c.challenged?.nombre}</div>
-              <div style={{ fontSize: 11, color: '#888', marginBottom: 8 }}>
-                {c.slot_day ? `${c.slot_court} · ${fmtDate(c.slot_day)} · ${c.slot_hour} · ${c.pago_confirmado ? '✓ Pago ok' : 'Pago pendiente'}` : 'Sin cancha · vence ' + fmtDate(c.deadline)}
-              </div>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {!c.slot_day
-                  ? <button className="btn btn-accept" style={{ fontSize: 12 }} onClick={() => setSlotModal({ id: c.id, court: courts[0]?.id, day: '', hour: '18:00' })}>Asignar cancha</button>
-                  : <button className="btn" style={{ fontSize: 12 }} onClick={() => setSlotModal({ id: c.id, court: c.slot_court, day: '', hour: c.slot_hour })}>Editar cancha</button>
-                }
-                {c.slot_day && !c.pago_confirmado && <button className="btn btn-accept" style={{ fontSize: 12 }} onClick={() => confirmPaymentCanchas(c)}>✓ Pago</button>}
-                {c.slot_day && <button className="btn btn-warn" style={{ fontSize: 12 }} onClick={() => releaseSlot(c)}>Liberar cancha</button>}
-                {c.pago_confirmado && <span className="badge badge-green">Listo</span>}
-              </div>
-            </div>
-          ))
-        }
-      </div>
-
-      {/* Modal asignar cancha */}
-      {slotModal && (
-        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setSlotModal(null) }}>
-          <div className="modal">
-            <h3>Asignar cancha</h3>
-            <div className="form-row"><label>Cancha</label>
-              <select value={slotModal.court} onChange={e => setSlotModal(m => ({ ...m, court: e.target.value }))}>
-                {courts.map(c => <option key={c.id} value={c.id}>{c.nombre} ({c.surface})</option>)}
-              </select>
-              {(() => { const court = slotModal.court; if (!court) return null; const isHard = court === 'c3'; return (<span style={{ fontSize: 11, color: '#888', display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 }}><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: isHard ? '#60B8E0' : '#E8712A' }} />{isHard ? 'Cancha dura' : 'Arcilla'}</span>) })()}
-            </div>
-            <div className="form-row"><label>Día</label>
-              <input type="date" value={slotModal.day} onChange={e => setSlotModal(m => ({ ...m, day: e.target.value }))} />
-            </div>
-            <div className="form-row"><label>Hora inicio</label>
-              <select value={slotModal.hour} onChange={e => setSlotModal(m => ({ ...m, hour: e.target.value }))}>
-                {HOURS.map(h => <option key={h} value={h}>{h}</option>)}
-              </select>
-            </div>
-            <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>Se reservarán 3 bloques de 30 min (1.5 horas)</div>
-            <div className="modal-actions">
-              <button className="btn" onClick={() => setSlotModal(null)}>Cancelar</button>
-              <button className="btn btn-accept" onClick={assignSlot}>Asignar</button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  )
 
   // ── Vista jugador normal ──────────────────────────────────
   return (
