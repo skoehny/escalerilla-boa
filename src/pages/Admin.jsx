@@ -1433,21 +1433,89 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
               <input type="checkbox" id="wc-check" checked={editPlayerModal.wildcard_usada || false} onChange={e => setEditPlayerModal(m => ({ ...m, wildcard_usada: e.target.checked }))} style={{ width: 16, height: 16 }} />
               <label htmlFor="wc-check" style={{ fontSize: 13, color: '#333', marginBottom: 0 }}>Wild Card usada {editPlayerModal.wildcard_usada ? '(marcar para quitar)' : '(marcar para registrar como usada)'}</label>
             </div>
+
+            {/* ── ACCIONES DEL JUGADOR ── */}
             <div style={{ borderTop: '0.5px solid #e0dfd8', marginTop: 14, paddingTop: 12 }}>
-              <button
-                className="btn btn-warn"
-                style={{ fontSize: 12, width: '100%' }}
+              <div style={{ fontSize: 11, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 10 }}>Acciones</div>
+
+              {/* Lesión */}
+              {editPlayerModal.lesionado ? (
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ fontSize: 12, color: '#A32D2D', marginBottom: 6 }}>
+                    <i className="ti ti-first-aid-kit" style={{ marginRight: 4 }} aria-hidden="true" />
+                    Lesionado{editPlayerModal.lesion_nota ? `: ${editPlayerModal.lesion_nota}` : ''}
+                  </div>
+                  <button className="btn btn-accept" style={{ fontSize: 12, width: '100%' }}
+                    onClick={async () => {
+                      await updatePlayer(editPlayerModal.id, { lesionado: false, lesion_nota: '' })
+                      setEditPlayerModal(null)
+                      ntf(`${editPlayerModal.nombre} dado de alta.`)
+                      load()
+                    }}>
+                    Dar de alta
+                  </button>
+                </div>
+              ) : (
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <input
+                      placeholder="Nota de lesión (opcional)"
+                      value={editPlayerModal._injNote || ''}
+                      onChange={e => setEditPlayerModal(m => ({ ...m, _injNote: e.target.value }))}
+                      style={{ flex: 1, fontSize: 12 }}
+                    />
+                    <button className="btn btn-reject" style={{ fontSize: 12, whiteSpace: 'nowrap' }}
+                      onClick={async () => {
+                        await updatePlayer(editPlayerModal.id, { lesionado: true, lesion_nota: editPlayerModal._injNote || '' })
+                        setEditPlayerModal(null)
+                        ntf(`${editPlayerModal.nombre} marcado como lesionado.`, 'warn')
+                        load()
+                      }}>
+                      Marcar lesionado
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Activar / Inactivar */}
+              {editPlayerModal.activo ? (
+                <div style={{ marginBottom: 10 }}>
+                  <button className="btn btn-warn" style={{ fontSize: 12, width: '100%' }}
+                    onClick={() => { inactivatePlayer(editPlayerModal); setEditPlayerModal(null) }}>
+                    Inactivar jugador
+                  </button>
+                </div>
+              ) : (
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <input
+                      type="number"
+                      placeholder="Posición (vacío = último)"
+                      value={editPlayerModal._activatePos || ''}
+                      onChange={e => setEditPlayerModal(m => ({ ...m, _activatePos: e.target.value }))}
+                      style={{ flex: 1, fontSize: 12 }}
+                    />
+                    <button className="btn btn-accept" style={{ fontSize: 12, whiteSpace: 'nowrap' }}
+                      onClick={() => { activatePlayer(editPlayerModal, editPlayerModal._activatePos); setEditPlayerModal(null) }}>
+                      Activar
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Resetear PIN */}
+              <button className="btn btn-warn" style={{ fontSize: 12, width: '100%' }}
                 onClick={() => {
                   if (confirm(`¿Resetear el PIN de ${editPlayerModal.nombre} ${editPlayerModal.apellido}? Deberá crear uno nuevo al ingresar.`)) {
                     resetPlayerPin(editPlayerModal)
                     setEditPlayerModal(null)
                   }
-                }}
-              >
+                }}>
                 <i className="ti ti-key" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />
                 Resetear PIN
               </button>
             </div>
+
             <div className="modal-actions">
               <button className="btn" onClick={() => setEditPlayerModal(null)}>Cancelar</button>
               <button className="btn btn-accept" onClick={saveEditPlayer}>Guardar</button>
