@@ -18,7 +18,6 @@ for (let h = 7; h < 22; h++) {
   HOURS.push(`${String(h).padStart(2,'0')}:30`)
 }
 
-const WA_GROUP = 'https://chat.whatsapp.com/ECl8ws6EkfLKzKuycVrcRo'
 const STEPS = ['Pendiente', 'Acordar día', 'Reservar cancha', 'Pago confirmado', 'Jugado']
 
 function stepOf(c) {
@@ -259,11 +258,16 @@ export default function Desafios() {
                   Coordina el día con tu rival. Una vez acordado, cualquiera de los dos reserva la cancha.
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
-                  <a href={WA_GROUP} target="_blank" rel="noreferrer"
-                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8, border: '0.5px solid #1D9E75', background: '#E1F5EE', color: '#085041', fontSize: 12, fontWeight: 500, textDecoration: 'none' }}>
+                  <button
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8, border: '0.5px solid #1D9E75', background: '#E1F5EE', color: '#085041', fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}
+                    onClick={() => {
+                      const msg = `🎾 Escalerilla BOA — Desafío\n\n${myActive.challenger.nombre} ${myActive.challenger.apellido} vs ${myActive.challenged.nombre} ${myActive.challenged.apellido}\n\nCoordinando día y hora\n\nhttps://escalerilla-boa.vercel.app/desafios`
+                      if (navigator.share) { navigator.share({ text: msg }).catch(() => {}) }
+                      else { navigator.clipboard.writeText(msg); ntf('Mensaje copiado.') }
+                    }}>
                     <i className="ti ti-brand-whatsapp" style={{ fontSize: 15 }} aria-hidden="true" />
-                    Abrir grupo BOA
-                  </a>
+                    Compartir desafío
+                  </button>
                   <button className="btn" style={{ fontSize: 12, padding: '6px 12px' }}
                     onClick={() => { setSlotModal({ id: myActive.id, court: courts[0]?.id || '', day: '', hour: '18:00' }); setSlotError('') }}>
                     <i className="ti ti-tennis" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />
