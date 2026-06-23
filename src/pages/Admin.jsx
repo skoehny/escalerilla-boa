@@ -46,9 +46,6 @@ export default function Admin() {
   const [activeTab, setActiveTab] = useState('acciones')
 
   // Modals
-  const [injureModal, setInjureModal] = useState(null)
-  const [injNote, setInjNote] = useState('')
-  const [activateModal, setActivateModal] = useState(null)
   const [slotModal, setSlotModal] = useState(null)
   const [editSlotModal, setEditSlotModal] = useState(null)
   const [editPlayerModal, setEditPlayerModal] = useState(null)
@@ -303,7 +300,6 @@ export default function Admin() {
       }
     }
     await updatePlayer(p.id, { activo: true, posicion: pos })
-    setActivateModal(null)
     ntf(`${p.nombre} activado en #${pos}.`)
     load()
   }
@@ -311,19 +307,6 @@ export default function Admin() {
   async function inactivatePlayer(p) {
     await updatePlayer(p.id, { activo: false })
     ntf(`${p.nombre} marcado como inactivo. No aparece en el ranking.`, 'warn')
-    load()
-  }
-
-  async function markInjured(p) {
-    await updatePlayer(p.id, { lesionado: true, lesion_nota: injNote })
-    setInjureModal(null); setInjNote('')
-    ntf(`${p.nombre} marcado como lesionado.`, 'warn')
-    load()
-  }
-
-  async function clearInjury(p) {
-    await updatePlayer(p.id, { lesionado: false, lesion_nota: '' })
-    ntf(`${p.nombre} dado de alta.`)
     load()
   }
 
@@ -635,9 +618,7 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
   const acceptedChallenges = challenges.filter(c => c.status === 'accepted')
   const pendingChallenges = challenges.filter(c => c.status === 'pending')
   const completedChallenges = challenges.filter(c => c.status === 'completed')
-  const pendingActivation = players.filter(p => !p.activo)
   const pinResetRequests = players.filter(p => p.pin_reset_solicitado)
-  const activePlayers = players.filter(p => p.activo).sort((a, b) => (a.posicion || 999) - (b.posicion || 999))
 
   if (loading) return <p style={{ color: '#888', fontSize: 13, padding: 24 }}>Cargando...</p>
 
@@ -756,33 +737,6 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
             </button>
           </div>
 
-          {/* Lesiones */}
-          <div style={{ fontSize: 12, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', margin: '14px 0 8px' }}>Lesiones</div>
-          <div className="card">
-            {activePlayers.map(p => (
-              <div key={p.id} className="row-item">
-                <span style={{ width: 24, textAlign: 'center', fontSize: 13, color: '#888' }}>{p.posicion}</span>
-                <div className="avatar" style={{ width: 26, height: 26, fontSize: 10, background: p.lesionado ? '#FCEBEB' : '#E1F5EE', color: p.lesionado ? '#A32D2D' : '#0F6E56' }}>{ini(p.nombre, p.apellido)}</div>
-                <span style={{ flex: 1, fontSize: 13 }}>{p.nombre} {p.apellido}{p.lesionado && p.lesion_nota ? <span style={{ fontSize: 11, color: '#A32D2D', marginLeft: 4 }}>· {p.lesion_nota}</span> : ''}</span>
-                {p.lesionado
-                  ? <button className="btn btn-accept" style={{ fontSize: 12 }} onClick={() => clearInjury(p)}>Alta</button>
-                  : <button className="btn btn-reject" style={{ fontSize: 12 }} onClick={() => { setInjureModal(p); setInjNote('') }}>Lesionado</button>}
-              </div>
-            ))}
-          </div>
-
-          {pendingActivation.length > 0 && <>
-            <div style={{ fontSize: 12, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', margin: '14px 0 8px' }}>Activar jugadores ({pendingActivation.length})</div>
-            <div className="card">
-              {pendingActivation.map(p => (
-                <div key={p.id} className="row-item">
-                  <div className="avatar" style={{ width: 26, height: 26, fontSize: 10 }}>{ini(p.nombre, p.apellido)}</div>
-                  <div style={{ flex: 1 }}><div style={{ fontSize: 13 }}>{p.nombre} {p.apellido}</div><div style={{ fontSize: 11, color: '#888' }}>+56 {p.telefono}</div></div>
-                  <button className="btn btn-accept" style={{ fontSize: 12 }} onClick={() => setActivateModal(p)}>Activar</button>
-                </div>
-              ))}
-            </div>
-          </>}
         </div>
       )}
 
@@ -891,29 +845,48 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
           <div style={{ fontSize: 12, color: '#888', marginBottom: 8 }}>
             Activos: {players.filter(p => p.activo).length} · Inactivos: {players.filter(p => !p.activo).length}
           </div>
-          <div className="card">
-            {[...players].sort((a, b) => {
-              if (a.activo && !b.activo) return -1
-              if (!a.activo && b.activo) return 1
-              return (a.posicion || 999) - (b.posicion || 999)
-            }).map(p => (
-              <div key={p.id} className="row-item">
-                <span style={{ width: 24, textAlign: 'center', fontSize: 12, color: '#888' }}>{p.posicion || '—'}</span>
-                <div className="avatar" style={{ width: 26, height: 26, fontSize: 10, opacity: p.activo ? 1 : 0.5 }}>{ini(p.nombre, p.apellido)}</div>
-                <span style={{ flex: 1, fontSize: 13, color: p.activo ? 'inherit' : '#aaa' }}>{p.nombre} {p.apellido}</span>
-                <span className={`badge ${p.activo ? 'badge-green' : 'badge-gray'}`} style={{ fontSize: 10 }}>{p.activo ? 'activo' : 'inactivo'}</span>
-                {p.es_admin && <span className="badge badge-blue" style={{ fontSize: 10 }}>admin</span>}
-                {p.activo && !p.wildcard_usada && <span style={{ fontSize: 10, color: '#BA7517' }}>⭐ WC</span>}
-                {p.activo && p.wildcard_usada && <span style={{ fontSize: 10, color: '#aaa' }}>WC usada</span>}
-                <button className="btn" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => setEditPlayerModal({ ...p })}>Editar</button>
-                {p.activo
-                  ? <button className="btn btn-warn" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => inactivatePlayer(p)}>Inactivar</button>
-                  : <button className="btn btn-accept" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => setActivateModal(p)}>Activar</button>
-                }
 
-              </div>
-            ))}
+          {/* Activos */}
+          <div className="card">
+            {players
+              .filter(p => p.activo)
+              .sort((a, b) => (a.posicion || 999) - (b.posicion || 999))
+              .map(p => (
+                <div key={p.id} className="row-item">
+                  <span style={{ width: 24, textAlign: 'center', fontSize: 12, color: '#888' }}>{p.posicion}</span>
+                  <div className="avatar" style={{ width: 26, height: 26, fontSize: 10 }}>{ini(p.nombre, p.apellido)}</div>
+                  <span style={{ flex: 1, fontSize: 13 }}>{p.nombre} {p.apellido}</span>
+                  {p.es_admin && <span className="badge badge-blue" style={{ fontSize: 10 }}>admin</span>}
+                  {p.wildcard_usada
+                    ? <span style={{ fontSize: 10, color: '#ccc' }}>WC</span>
+                    : <span style={{ fontSize: 10, color: '#BA7517', fontWeight: 600 }}>⭐ WC</span>}
+                  <button className="btn" style={{ fontSize: 11, padding: '2px 8px' }}
+                    onClick={() => setEditPlayerModal({ ...p })}>Editar</button>
+                </div>
+              ))}
           </div>
+
+          {/* Inactivos */}
+          {players.some(p => !p.activo) && (
+            <>
+              <div style={{ fontSize: 12, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', margin: '14px 0 8px' }}>
+                Inactivos ({players.filter(p => !p.activo).length})
+              </div>
+              <div className="card">
+                {players
+                  .filter(p => !p.activo)
+                  .sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''))
+                  .map(p => (
+                    <div key={p.id} className="row-item">
+                      <div className="avatar" style={{ width: 26, height: 26, fontSize: 10, opacity: 0.5 }}>{ini(p.nombre, p.apellido)}</div>
+                      <span style={{ flex: 1, fontSize: 13, color: '#aaa' }}>{p.nombre} {p.apellido}</span>
+                      <button className="btn" style={{ fontSize: 11, padding: '2px 8px' }}
+                        onClick={() => setEditPlayerModal({ ...p })}>Editar</button>
+                    </div>
+                  ))}
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -1369,39 +1342,6 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
             <div className="modal-actions">
               <button className="btn" onClick={() => setHistorialModal(null)}>Cancelar</button>
               <button className="btn btn-accept" onClick={addHistorial}>Agregar</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Lesión */}
-      {injureModal && (
-        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setInjureModal(null) }}>
-          <div className="modal">
-            <h3>Marcar lesionado</h3>
-            <p style={{ fontSize: 13, color: '#555', marginBottom: 12 }}>{injureModal.nombre} {injureModal.apellido}</p>
-            <div className="form-row"><label>Descripción (opcional)</label><input type="text" value={injNote} onChange={e => setInjNote(e.target.value)} placeholder="ej: Esguince tobillo..." /></div>
-            <div className="modal-actions">
-              <button className="btn" onClick={() => setInjureModal(null)}>Cancelar</button>
-              <button className="btn btn-reject" onClick={() => markInjured(injureModal)}>Confirmar</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Activar jugador */}
-      {activateModal && (
-        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setActivateModal(null) }}>
-          <div className="modal">
-            <h3>Activar jugador</h3>
-            <p style={{ fontSize: 13, color: '#555', marginBottom: 12 }}>{activateModal.nombre} {activateModal.apellido}</p>
-            <div className="form-row">
-              <label>Posición inicial (dejar vacío = última posición)</label>
-              <input type="number" id="act-pos" min="1" max="100" placeholder={`ej: ${Math.max(...players.filter(x => x.activo && x.posicion).map(x => x.posicion), 0) + 1}`} />
-            </div>
-            <div className="modal-actions">
-              <button className="btn" onClick={() => setActivateModal(null)}>Cancelar</button>
-              <button className="btn btn-accept" onClick={() => activatePlayer(activateModal, document.getElementById('act-pos').value)}>Activar</button>
             </div>
           </div>
         </div>
