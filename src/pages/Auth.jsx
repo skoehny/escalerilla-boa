@@ -22,6 +22,7 @@ export default function Auth() {
   // Login con PIN
   const [loginPin, setLoginPin] = useState('')
   const [showLoginPin, setShowLoginPin] = useState(false)
+  const [pinResetSent, setPinResetSent] = useState(false)
 
   const { login } = useSession()
   const navigate = useNavigate()
@@ -89,6 +90,17 @@ export default function Auth() {
       setError(err.message)
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function handleForgotPin() {
+    try {
+      await supabase.from('players').update({ pin_reset_solicitado: true }).eq('id', player.id)
+      const msg = encodeURIComponent(`Hola administrador, olvidé mi PIN en la Escalerilla BOA y necesito resetearlo. Soy ${player.nombre} ${player.apellido}.`)
+      window.open(`https://wa.me/56974790352?text=${msg}`, '_blank')
+      setPinResetSent(true)
+    } catch {
+      setError('No se pudo enviar la solicitud. Intenta de nuevo.')
     }
   }
 
@@ -255,6 +267,18 @@ export default function Auth() {
               onClick={() => { setStep('phone'); setError('') }}>
               ← Volver
             </button>
+            {!pinResetSent ? (
+              <button type="button"
+                style={{ marginTop: 10, width: '100%', background: 'none', border: 'none',
+                         color: '#A32D2D', fontSize: 12, cursor: 'pointer', padding: '6px 0' }}
+                onClick={handleForgotPin}>
+                Olvidé mi PIN
+              </button>
+            ) : (
+              <div className="notif notif-ok" style={{ marginTop: 10, fontSize: 12 }}>
+                <i className="ti ti-check" aria-hidden="true" /> Solicitud enviada. El administrador reseteará tu PIN y podrás crear uno nuevo al volver a entrar.
+              </div>
+            )}
           </form>
         )}
 

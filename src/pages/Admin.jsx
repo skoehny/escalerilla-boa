@@ -396,6 +396,14 @@ export default function Admin() {
   }
 
 
+  async function resetPlayerPin(p) {
+    try {
+      await supabase.from('players').update({ pin_hash: null, pin_reset_solicitado: false }).eq('id', p.id)
+      ntf(`PIN reseteado. ${p.nombre} creará uno nuevo al ingresar.`)
+      load()
+    } catch (err) { ntf(err.message, 'err') }
+  }
+
   async function createPlayer() {
     const p = newPlayerModal
     if (!p.nombre?.trim() || !p.apellido?.trim() || !p.telefono?.trim()) { ntf('Nombre, apellido y teléfono son obligatorios.', 'err'); return }
@@ -632,6 +640,7 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
   const pendingChallenges = challenges.filter(c => c.status === 'pending')
   const completedChallenges = challenges.filter(c => c.status === 'completed')
   const pendingActivation = players.filter(p => !p.activo)
+  const pinResetRequests = players.filter(p => p.pin_reset_solicitado)
   const activePlayers = players.filter(p => p.activo).sort((a, b) => (a.posicion || 999) - (b.posicion || 999))
 
   if (loading) return <p style={{ color: '#888', fontSize: 13, padding: 24 }}>Cargando...</p>
@@ -745,6 +754,27 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
               </div>
             ))}
           </div>
+
+          {pinResetRequests.length > 0 && (
+            <div style={{ marginBottom: 14 }}>
+              <div className="section-title">
+                Solicitudes de reset de PIN <span className="badge badge-red">{pinResetRequests.length}</span>
+              </div>
+              <div className="card">
+                {pinResetRequests.map(p => (
+                  <div key={p.id} className="row-item">
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 500 }}>{p.nombre} {p.apellido}</div>
+                      <div style={{ fontSize: 11, color: '#888' }}>+56 {p.telefono}</div>
+                    </div>
+                    <button className="btn btn-warn" style={{ fontSize: 12 }} onClick={() => resetPlayerPin(p)}>
+                      Resetear PIN
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {pendingActivation.length > 0 && <>
             <div style={{ fontSize: 12, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', margin: '14px 0 8px' }}>Activar jugadores ({pendingActivation.length})</div>
