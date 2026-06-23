@@ -336,6 +336,7 @@ export default function Admin() {
     // Validar duplicado (excluyendo el mismo jugador)
     const dup = players.find(x => x.id !== p.id && x.nombre?.trim().toLowerCase() === p.nombre?.trim().toLowerCase() && x.apellido?.trim().toLowerCase() === p.apellido?.trim().toLowerCase())
     if (dup) { ntf(`Ya existe otro jugador con el mismo nombre y apellido (#${dup.posicion}).`, 'err'); return }
+    if (!p.telefono?.trim() || !/^9\d{8}$/.test(p.telefono)) { ntf('El teléfono debe tener 9 dígitos y empezar con 9 (ej: 912345678).', 'err'); return }
     const newPos = parseInt(p.posicion)
     const oldPos = players.find(x => x.id === p.id)?.posicion
     
@@ -398,6 +399,7 @@ export default function Admin() {
   async function createPlayer() {
     const p = newPlayerModal
     if (!p.nombre?.trim() || !p.apellido?.trim() || !p.telefono?.trim()) { ntf('Nombre, apellido y teléfono son obligatorios.', 'err'); return }
+    if (!/^9\d{8}$/.test(p.telefono)) { ntf('El teléfono debe tener 9 dígitos y empezar con 9 (ej: 912345678).', 'err'); return }
     // Validar duplicado nombre + apellido
     const dup = players.find(x => x.nombre?.trim().toLowerCase() === p.nombre.trim().toLowerCase() && x.apellido?.trim().toLowerCase() === p.apellido.trim().toLowerCase())
     if (dup) { ntf(`Ya existe un jugador con el mismo nombre y apellido (#${dup.posicion}).`, 'err'); return }
@@ -1450,7 +1452,13 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
               <div className="form-row"><label>Apellido</label><input value={editPlayerModal.apellido || ''} onChange={e => setEditPlayerModal(m => ({ ...m, apellido: e.target.value }))} /></div>
             </div>
             <div className="form-row"><label>Email</label><input type="email" value={editPlayerModal.email || ''} onChange={e => setEditPlayerModal(m => ({ ...m, email: e.target.value }))} /></div>
-            <div className="form-row"><label>Teléfono</label><input value={editPlayerModal.telefono || ''} onChange={e => setEditPlayerModal(m => ({ ...m, telefono: e.target.value }))} /></div>
+            <div className="form-row">
+              <label>Teléfono</label>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <span style={{ display: 'flex', alignItems: 'center', padding: '0 10px', background: '#f5f4f0', border: '0.5px solid #ccc', borderRadius: 8, fontSize: 13, color: '#888', height: 36 }}>🇨🇱 +56</span>
+                <input value={editPlayerModal.telefono || ''} onChange={e => setEditPlayerModal(m => ({ ...m, telefono: e.target.value.replace(/[^0-9]/g, '') }))} inputMode="numeric" maxLength={9} placeholder="912345678" style={{ flex: 1 }} />
+              </div>
+            </div>
             <div className="form-row"><label>Posición</label><input type="number" value={editPlayerModal.posicion || ''} onChange={e => setEditPlayerModal(m => ({ ...m, posicion: e.target.value }))} /></div>
             <div className="form-row" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <input type="checkbox" id="admin-check" checked={editPlayerModal.es_admin || false} onChange={e => setEditPlayerModal(m => ({ ...m, es_admin: e.target.checked }))} style={{ width: 16, height: 16 }} />

@@ -137,9 +137,11 @@ export default function Auth() {
                 <input
                   type="tel"
                   value={tel}
-                  onChange={e => setTel(e.target.value.replace(/[^0-9\s]/g, '').slice(0, 11))}
-                  placeholder="9 1234 5678"
+                  onChange={e => setTel(e.target.value.replace(/[^0-9]/g, '').slice(0, 9))}
+                  placeholder="912345678"
                   autoComplete="tel"
+                  inputMode="numeric"
+                  maxLength={9}
                   style={{ flex: 1 }}
                   autoFocus
                 />
