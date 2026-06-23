@@ -41,8 +41,6 @@ export default function Admin() {
   const [challenges, setChallenges] = useState([])
   const [courts, setCourts] = useState([])
   const [snapshots, setSnapshots] = useState([])
-  const [rankingHistory, setRankingHistory] = useState([])
-  const [selectedWeekIdx, setSelectedWeekIdx] = useState(0)
   const [loading, setLoading] = useState(true)
   const [notif, setNotif] = useState(null)
   const [activeTab, setActiveTab] = useState('acciones')
@@ -79,8 +77,6 @@ export default function Admin() {
       setCourts(co)
       const { data: snaps } = await supabase.from('ranking_snapshots').select('*').order('id', { ascending: false }).limit(1)
       setSnapshots(snaps || [])
-      const { data: hist } = await supabase.from('ranking_history').select('*').order('semana', { ascending: false }).limit(10)
-      setRankingHistory(hist || [])
     } finally { setLoading(false) }
   }
 
@@ -645,7 +641,7 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
 
   if (loading) return <p style={{ color: '#888', fontSize: 13, padding: 24 }}>Cargando...</p>
 
-  const tabs = ['acciones', 'desafíos', 'resultados', 'jugadores', 'historial']
+  const tabs = ['acciones', 'desafíos', 'resultados', 'jugadores']
 
   return (
     <div>
@@ -918,66 +914,6 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
               </div>
             ))}
           </div>
-        </div>
-      )}
-
-      {/* HISTORIAL SEMANAL */}
-      {activeTab === 'historial' && (
-        <div>
-          {rankingHistory.length === 0
-            ? <p style={{ fontSize: 13, color: '#888', textAlign: 'center', padding: 24 }}>Sin historial aún. Se genera al publicar el ranking.</p>
-            : (() => {
-              const week = rankingHistory[selectedWeekIdx]
-              const prevWeek = rankingHistory[selectedWeekIdx + 1]
-              return (
-                <>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                    <button className="btn" style={{ fontSize: 12, padding: '4px 10px' }}
-                      onClick={() => setSelectedWeekIdx(i => Math.min(i + 1, rankingHistory.length - 1))}
-                      disabled={selectedWeekIdx >= rankingHistory.length - 1}>
-                      ← Anterior
-                    </button>
-                    <div style={{ textAlign: 'center' }}>
-                      <div style={{ fontSize: 13, fontWeight: 500 }}>Semana {week.semana}</div>
-                      <div style={{ fontSize: 11, color: '#888' }}>{fmtDate(week.fecha)}</div>
-                      {selectedWeekIdx === 0 && <span className="badge badge-green" style={{ fontSize: 10 }}>Última</span>}
-                    </div>
-                    <button className="btn" style={{ fontSize: 12, padding: '4px 10px' }}
-                      onClick={() => setSelectedWeekIdx(i => Math.max(i - 1, 0))}
-                      disabled={selectedWeekIdx === 0}>
-                      Siguiente →
-                    </button>
-                  </div>
-                  <div className="card">
-                    {(week.data || []).map((p) => {
-                      const prev = prevWeek?.data?.find(x => x.id === p.id)
-                      const diff = prev ? prev.posicion - p.posicion : 0
-                      return (
-                        <div key={p.id} className="row-item">
-                          <span style={{ width: 24, textAlign: 'center', fontSize: 13, fontWeight: 500, color: p.posicion <= 3 ? '#BA7517' : '#888' }}>{p.posicion}</span>
-                          <span style={{ flex: 1, fontSize: 13 }}>{p.nombre} {p.apellido}</span>
-                          <span style={{ fontSize: 12, color: '#888', marginRight: 8 }}>{p.victorias}V {p.derrotas}D</span>
-                          {diff > 0 && <span style={{ fontSize: 11, color: '#3B6D11' }}>↑{diff}</span>}
-                          {diff < 0 && <span style={{ fontSize: 11, color: '#A32D2D' }}>↓{Math.abs(diff)}</span>}
-                          {diff === 0 && <span style={{ fontSize: 11, color: '#888' }}>—</span>}
-                        </div>
-                      )
-                    })}
-                  </div>
-                  {rankingHistory.length > 1 && (
-                    <div style={{ marginTop: 10, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                      {rankingHistory.map((w, i) => (
-                        <button key={w.id} className="btn" style={{ fontSize: 11, padding: '2px 8px', background: i === selectedWeekIdx ? '#1D9E75' : 'transparent', color: i === selectedWeekIdx ? '#fff' : '#555', borderColor: i === selectedWeekIdx ? '#1D9E75' : '#ddd' }}
-                          onClick={() => setSelectedWeekIdx(i)}>
-                          S{w.semana}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </>
-              )
-            })()
-          }
         </div>
       )}
 
