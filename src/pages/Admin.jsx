@@ -300,6 +300,12 @@ export default function Admin() {
   // ── Jugadores ────────────────────────────────────────────
   async function activatePlayer(p, posicion) {
     const pos = posicion ? parseInt(posicion) : (Math.max(...players.filter(x => x.activo && x.posicion).map(x => x.posicion), 0) + 1)
+    if (posicion) {
+      for (const pl of players) {
+        if (pl.id !== p.id && pl.posicion >= pos)
+          await updatePlayer(pl.id, { posicion: pl.posicion + 1 })
+      }
+    }
     await updatePlayer(p.id, { activo: true, posicion: pos })
     setActivateModal(null)
     ntf(`${p.nombre} activado en #${pos}.`)
@@ -334,20 +340,24 @@ export default function Admin() {
     const oldPos = players.find(x => x.id === p.id)?.posicion
     
     // Reorder other players if position changed
-    if (newPos !== oldPos && newPos && oldPos) {
-      if (newPos < oldPos) {
-        // Moving up: shift others down
+    if (newPos && newPos !== oldPos) {
+      if (!oldPos) {
+        // Sin posición previa: abrir hueco en newPos
         for (const pl of players) {
-          if (pl.id !== p.id && pl.posicion >= newPos && pl.posicion < oldPos) {
+          if (pl.id !== p.id && pl.posicion >= newPos)
             await updatePlayer(pl.id, { posicion: pl.posicion + 1 })
-          }
+        }
+      } else if (newPos < oldPos) {
+        // Mover arriba: [newPos..oldPos-1] bajan uno
+        for (const pl of players) {
+          if (pl.id !== p.id && pl.posicion >= newPos && pl.posicion < oldPos)
+            await updatePlayer(pl.id, { posicion: pl.posicion + 1 })
         }
       } else {
-        // Moving down: shift others up
+        // Mover abajo: [oldPos+1..newPos] suben uno
         for (const pl of players) {
-          if (pl.id !== p.id && pl.posicion > oldPos && pl.posicion <= newPos) {
+          if (pl.id !== p.id && pl.posicion > oldPos && pl.posicion <= newPos)
             await updatePlayer(pl.id, { posicion: pl.posicion - 1 })
-          }
         }
       }
     }
