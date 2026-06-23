@@ -663,91 +663,110 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
               </div>
             </div>
           )}
-          <div className="card" style={{ padding: '10px 12px' }}>
+          <div className="card" style={{ padding: '14px 16px' }}>
 
-            {/* Grupo Ranking */}
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <button className="btn btn-accept" onClick={async () => {
-                const day = new Date().getDay()
-                if (day !== 4) {
-                  if (!confirm('⚠️ La publicación normalmente se hace los JUEVES. ¿Estás seguro de publicar hoy?')) return
-                }
-                const plan = await computePublishPlan()
-                setPublishPreview(plan)
-              }}><i className="ti ti-trophy" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Publicar ranking</button>
-              {snapshots.length > 0 && <button className="btn btn-warn" onClick={undoRanking}><i className="ti ti-arrow-back" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Deshacer ranking</button>}
+            {/* ── Ranking ── */}
+            <div style={{ fontSize: 12, fontWeight: 500, color: '#6b6b6b', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 10 }}>Ranking</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <button style={{ gridColumn: '1 / -1', background: '#E1F5EE', border: '1px solid #9FE1CB', color: '#0F6E56', borderRadius: 10, padding: '14px 8px', fontSize: 14, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}
+                onClick={async () => {
+                  const day = new Date().getDay()
+                  if (day !== 4) {
+                    if (!confirm('⚠️ La publicación normalmente se hace los JUEVES. ¿Estás seguro de publicar hoy?')) return
+                  }
+                  const plan = await computePublishPlan()
+                  setPublishPreview(plan)
+                }}>
+                <i className="ti ti-trophy" style={{ verticalAlign: -2, marginRight: 6 }} aria-hidden="true" />Publicar ranking
+              </button>
+              {snapshots.length > 0 && (
+                <button style={{ gridColumn: '1 / -1', background: '#f7f6f2', border: '1px solid #e0dfd8', color: '#b0afa8', borderRadius: 10, padding: '14px 8px', fontSize: 14, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}
+                  onClick={undoRanking}>
+                  <i className="ti ti-arrow-back" style={{ verticalAlign: -2, marginRight: 6 }} aria-hidden="true" />Deshacer ranking
+                </button>
+              )}
             </div>
 
-            <div style={{ borderTop: '0.5px solid #f0efe8', margin: '10px 0' }} />
+            <div style={{ borderTop: '1.5px solid #ecece4', margin: '18px 0' }} />
 
-            {/* Grupo Crear */}
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <button className="btn btn-accept" onClick={() => setNewChallengeModal({ challenger_id: '', challenged_id: '', court: '', day: '', hour: '18:00', paid: false })}>
-                <i className="ti ti-plus" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Nuevo desafío
+            {/* ── Crear ── */}
+            <div style={{ fontSize: 12, fontWeight: 500, color: '#6b6b6b', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 10 }}>Crear</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <button style={{ background: '#E1F5EE', border: '1px solid #9FE1CB', color: '#0F6E56', borderRadius: 10, padding: '14px 8px', fontSize: 14, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}
+                onClick={() => setNewChallengeModal({ challenger_id: '', challenged_id: '', court: '', day: '', hour: '18:00', paid: false })}>
+                <i className="ti ti-plus" style={{ verticalAlign: -2, marginRight: 6 }} aria-hidden="true" />Nuevo desafío
               </button>
-              <button className="btn btn-accept" onClick={() => setNewPlayerModal({ nombre: '', apellido: '', telefono: '' })}>
-                <i className="ti ti-user-plus" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Agregar jugador
+              <button style={{ background: '#E1F5EE', border: '1px solid #9FE1CB', color: '#0F6E56', borderRadius: 10, padding: '14px 8px', fontSize: 14, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}
+                onClick={() => setNewPlayerModal({ nombre: '', apellido: '', telefono: '' })}>
+                <i className="ti ti-user-plus" style={{ verticalAlign: -2, marginRight: 6 }} aria-hidden="true" />Agregar jugador
               </button>
-              <button className="btn" onClick={() => setHistorialModal({ challenger_id: '', challenged_id: '', score_a: '', score_b: '', court: '', date: '' })}>
-                <i className="ti ti-history" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Agregar historial
+              <button style={{ gridColumn: '1 / -1', background: '#f3f2ed', border: '1px solid #d8d7d0', color: '#555', borderRadius: 10, padding: '14px 8px', fontSize: 14, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}
+                onClick={() => setHistorialModal({ challenger_id: '', challenged_id: '', score_a: '', score_b: '', court: '', date: '' })}>
+                <i className="ti ti-history" style={{ verticalAlign: -2, marginRight: 6 }} aria-hidden="true" />Agregar historial
               </button>
             </div>
 
-            <div style={{ borderTop: '0.5px solid #f0efe8', margin: '10px 0' }} />
+            <div style={{ borderTop: '1.5px solid #ecece4', margin: '18px 0' }} />
 
-            {/* Grupo Comunicación */}
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <button className="btn btn-warn" onClick={sendReminder}><i className="ti ti-bell" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Recordatorio</button>
-              <button className="btn" style={{ borderColor: '#25D366', color: '#128C7E' }} onClick={() => {
-                const pending = challenges.filter(c => c.status === 'pending')
-                const active = challenges.filter(c => c.status === 'accepted')
-                const completed = challenges.filter(c => c.status === 'completed' && c.ranking_applied === false)
-                const nm = p => `${p?.nombre || ''} ${p?.apellido || ''}`.trim()
-                let msg = '🎾 *Escalerilla BOA — Semana activa*\n\n'
-                if (pending.length) {
-                  msg += '⏳ *Pendientes de aceptación:*\n'
-                  pending.forEach(c => {
-                    const ch = players.find(p => p.id === c.challenger_id)
-                    const cd = players.find(p => p.id === c.challenged_id)
-                    msg += `• ${nm(ch)} desafió a ${nm(cd)}\n`
-                  })
-                  msg += '\n'
-                }
-                if (active.length) {
-                  msg += '⚔️ *Partidos programados:*\n'
-                  active.forEach(c => {
-                    const ch = players.find(p => p.id === c.challenger_id)
-                    const cd = players.find(p => p.id === c.challenged_id)
-                    msg += `• ${nm(ch)} vs ${nm(cd)}${c.slot_day ? ` — ${fmtDate(c.slot_day)}${c.slot_hour ? ', ' + c.slot_hour : ''}` : ' — acordando día'}\n`
-                  })
-                  msg += '\n'
-                }
-                if (completed.length) {
-                  msg += '✅ *Jugados esta semana:*\n'
-                  completed.forEach(c => {
-                    const ch = players.find(p => p.id === c.challenger_id)
-                    const cd = players.find(p => p.id === c.challenged_id)
-                    const w = c.ganador === 'challenger' ? ch : cd
-                    const tb = c.tiebreak_a != null ? ` (${c.tiebreak_a}-${c.tiebreak_b})` : ''
-                    msg += `• ${nm(ch)} ${c.score_a}-${c.score_b}${tb} ${nm(cd)} → ${nm(w)} gana\n`
-                  })
-                  msg += '\n'
-                }
-                msg += '📊 Ver ranking: https://escalerilla-boa.vercel.app'
-                if (navigator.share) { navigator.share({ text: msg }) } else { navigator.clipboard.writeText(msg); ntf('Mensaje copiado.') }
-              }}>
-                <i className="ti ti-brand-whatsapp" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Resumen WA
+            {/* ── Comunicación ── */}
+            <div style={{ fontSize: 12, fontWeight: 500, color: '#6b6b6b', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 10 }}>Comunicación</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <button style={{ background: '#FAEEDA', border: '1px solid #FAC775', color: '#9c610f', borderRadius: 10, padding: '14px 8px', fontSize: 14, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}
+                onClick={sendReminder}>
+                <i className="ti ti-bell" style={{ verticalAlign: -2, marginRight: 6 }} aria-hidden="true" />Recordatorio
               </button>
-              <button className="btn" onClick={async () => {
-                const msg = '🎾 Escalerilla BOA — Club BOA. Ingresa en: https://escalerilla-boa.vercel.app. Si ya eres jugador: entra con tu número de WhatsApp y completa tu perfil. Si quieres unirte: regístrate con tus datos y el admin te activará.'
-                if (navigator.share) {
-                  await navigator.share({ text: msg })
-                } else {
-                  await navigator.clipboard.writeText(msg)
-                  ntf('Mensaje copiado al portapapeles.')
-                }
-              }}>
-                <i className="ti ti-user-plus" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />Invitar jugadores
+              <button style={{ background: '#e3f7ee', border: '1px solid #7fd9a8', color: '#0c7a5f', borderRadius: 10, padding: '14px 8px', fontSize: 14, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}
+                onClick={() => {
+                  const pending = challenges.filter(c => c.status === 'pending')
+                  const active = challenges.filter(c => c.status === 'accepted')
+                  const completed = challenges.filter(c => c.status === 'completed' && c.ranking_applied === false)
+                  const nm = p => `${p?.nombre || ''} ${p?.apellido || ''}`.trim()
+                  let msg = '🎾 *Escalerilla BOA — Semana activa*\n\n'
+                  if (pending.length) {
+                    msg += '⏳ *Pendientes de aceptación:*\n'
+                    pending.forEach(c => {
+                      const ch = players.find(p => p.id === c.challenger_id)
+                      const cd = players.find(p => p.id === c.challenged_id)
+                      msg += `• ${nm(ch)} desafió a ${nm(cd)}\n`
+                    })
+                    msg += '\n'
+                  }
+                  if (active.length) {
+                    msg += '⚔️ *Partidos programados:*\n'
+                    active.forEach(c => {
+                      const ch = players.find(p => p.id === c.challenger_id)
+                      const cd = players.find(p => p.id === c.challenged_id)
+                      msg += `• ${nm(ch)} vs ${nm(cd)}${c.slot_day ? ` — ${fmtDate(c.slot_day)}${c.slot_hour ? ', ' + c.slot_hour : ''}` : ' — acordando día'}\n`
+                    })
+                    msg += '\n'
+                  }
+                  if (completed.length) {
+                    msg += '✅ *Jugados esta semana:*\n'
+                    completed.forEach(c => {
+                      const ch = players.find(p => p.id === c.challenger_id)
+                      const cd = players.find(p => p.id === c.challenged_id)
+                      const w = c.ganador === 'challenger' ? ch : cd
+                      const tb = c.tiebreak_a != null ? ` (${c.tiebreak_a}-${c.tiebreak_b})` : ''
+                      msg += `• ${nm(ch)} ${c.score_a}-${c.score_b}${tb} ${nm(cd)} → ${nm(w)} gana\n`
+                    })
+                    msg += '\n'
+                  }
+                  msg += '📊 Ver ranking: https://escalerilla-boa.vercel.app'
+                  if (navigator.share) { navigator.share({ text: msg }) } else { navigator.clipboard.writeText(msg); ntf('Mensaje copiado.') }
+                }}>
+                <i className="ti ti-brand-whatsapp" style={{ verticalAlign: -2, marginRight: 6 }} aria-hidden="true" />Resumen WA
+              </button>
+              <button style={{ gridColumn: '1 / -1', background: '#f3f2ed', border: '1px solid #d8d7d0', color: '#555', borderRadius: 10, padding: '14px 8px', fontSize: 14, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}
+                onClick={async () => {
+                  const msg = '🎾 Escalerilla BOA — Club BOA. Ingresa en: https://escalerilla-boa.vercel.app. Si ya eres jugador: entra con tu número de WhatsApp y completa tu perfil. Si quieres unirte: regístrate con tus datos y el admin te activará.'
+                  if (navigator.share) {
+                    await navigator.share({ text: msg })
+                  } else {
+                    await navigator.clipboard.writeText(msg)
+                    ntf('Mensaje copiado al portapapeles.')
+                  }
+                }}>
+                <i className="ti ti-user-plus" style={{ verticalAlign: -2, marginRight: 6 }} aria-hidden="true" />Invitar jugadores
               </button>
             </div>
 
