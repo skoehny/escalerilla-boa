@@ -159,6 +159,14 @@ export default function Admin() {
   const [woModal, setWoModal] = useState(null)
   const [cancelModal, setCancelModal] = useState(null)
 
+  // Simulador
+  const [simRows, setSimRows]             = useState(null)
+  const [simResult, setSimResult]         = useState(null)
+  const [simAddModal, setSimAddModal]     = useState(false)
+  const [simNewA, setSimNewA]             = useState('')
+  const [simNewB, setSimNewB]             = useState('')
+  const [simNewGanador, setSimNewGanador] = useState(null)
+
   useEffect(() => { load() }, [])
 
   async function load() {
@@ -198,6 +206,48 @@ export default function Admin() {
   async function computePublishPlan() {
     const { data: cfg } = await supabase.from('weekly_config').select('*').eq('id', 1).single()
     return calcPlan(players, challenges, cfg)
+  }
+
+  // ── Simulador ────────────────────────────────────────────────
+  function initSimRows() {
+    return challenges
+      .filter(c =>
+        (c.status === 'completed' && !c.ranking_applied) ||
+        c.status === 'accepted' ||
+        c.status === 'pending'
+      )
+      .map(c => ({
+        id: c.id,
+        challenger_id: c.challenger_id,
+        challenged_id: c.challenged_id,
+        challengerName: c.challenger ? `${c.challenger.nombre} ${c.challenger.apellido}` : '?',
+        challengedName: c.challenged ? `${c.challenged.nombre} ${c.challenged.apellido}` : '?',
+        challengerPos: c.challenger?.posicion,
+        challengedPos: c.challenged?.posicion,
+        ganador: c.ganador || null,
+        status: c.status,
+        isInvented: false,
+        created_at: c.created_at,
+      }))
+  }
+
+  function buildSimChallenges() {
+    return simRows
+      .filter(r => r.ganador !== null)
+      .map(r => ({
+        status: 'completed',
+        ranking_applied: false,
+        challenger_id: r.challenger_id,
+        challenged_id: r.challenged_id,
+        ganador: r.ganador,
+        created_at: r.created_at || new Date().toISOString(),
+        score_a: 6, score_b: 3, is_wo: false,
+      }))
+  }
+
+  async function runSim() {
+    const { data: cfg } = await supabase.from('weekly_config').select('*').eq('id', 1).single()
+    setSimResult(calcPlan(players, buildSimChallenges(), cfg))
   }
 
   async function publishRanking(plan) {
@@ -620,7 +670,7 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
 
   if (loading) return <p style={{ color: '#888', fontSize: 13, padding: 24 }}>Cargando...</p>
 
-  const tabs = ['acciones', 'desafíos', 'resultados', 'jugadores']
+  const tabs = ['acciones', 'desafíos', 'resultados', 'jugadores', 'simulador']
 
   return (
     <div>
@@ -629,7 +679,10 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 0, marginBottom: 14, borderBottom: '0.5px solid #e0dfd8', overflowX: 'auto' }}>
         {tabs.map(t => (
-          <button key={t} onClick={() => setActiveTab(t)} style={{
+          <button key={t} onClick={() => {
+            if (t === 'simulador' && simRows === null) setSimRows(initSimRows())
+            setActiveTab(t)
+          }} style={{
             padding: '8px 14px', fontSize: 13, cursor: 'pointer', border: 'none',
             background: 'transparent', color: activeTab === t ? '#1D9E75' : '#888',
             borderBottom: activeTab === t ? '2px solid #1D9E75' : '2px solid transparent',
@@ -924,6 +977,233 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
           )}
         </div>
       )}
+
+      {/* SIMULADOR */}
+      {activeTab === 'simulador' && simRows !== null && (() => {
+        const activePlayers = players.filter(p => p.activo && p.posicion != null)
+          .sort((a, b) => a.posicion - b.posicion)
+
+        const bSim = (active) => ({
+          fontSize: 11, padding: '3px 9px', borderRadius: 6, cursor: 'pointer',
+          fontFamily: 'inherit', fontWeight: active ? 500 : 400,
+          border: active ? '1px solid #0F6E56' : '0.5px solid #ccc',
+          background: active ? '#E1F5EE' : '#f5f4f0',
+          color: active ? '#0F6E56' : '#888',
+        })
+
+        const setGanador = (id, val) =>
+          setSimRows(rows => rows.map(r => r.id === id ? { ...r, ganador: val } : r))
+
+        const renderRow = (r) => (
+          <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: '0.5px solid #f0efe8', flexWrap: 'wrap' }}>
+            <span style={{ flex: 1, fontSize: 12, minWidth: 120 }}>
+              <span style={{ fontWeight: 500 }}>{r.challengerName}</span>
+              <span style={{ color: '#aaa' }}> (#{r.challengerPos})</span>
+              <span style={{ color: '#bbb' }}> vs </span>
+              <span style={{ fontWeight: 500 }}>{r.challengedName}</span>
+              <span style={{ color: '#aaa' }}> (#{r.challengedPos})</span>
+              {r.isInvented && <span style={{ fontSize: 10, color: '#1D9E75', marginLeft: 5 }}>+ inventado</span>}
+            </span>
+            <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+              <button style={bSim(r.ganador === 'challenger')} onClick={() => setGanador(r.id, r.ganador === 'challenger' ? null : 'challenger')}>Gana A</button>
+              <button style={bSim(r.ganador === 'challenged')} onClick={() => setGanador(r.id, r.ganador === 'challenged' ? null : 'challenged')}>Gana B</button>
+              <button style={bSim(r.ganador === null)} onClick={() => setGanador(r.id, null)}>Sin jugar</button>
+            </div>
+          </div>
+        )
+
+        const jugados    = simRows.filter(r => r.status === 'completed' && !r.isInvented)
+        const aceptados  = simRows.filter(r => r.status === 'accepted')
+        const pendientes = simRows.filter(r => r.status === 'pending')
+        const inventados = simRows.filter(r => r.isInvented)
+
+        return (
+          <div>
+            <div style={{ background: '#FFF8E1', border: '1px solid #FFE082', borderRadius: 8, padding: '8px 12px', fontSize: 12, color: '#7A5C00', marginBottom: 14 }}>
+              🧪 Simulación — no afecta el ranking real. Solo cálculo en memoria.
+            </div>
+
+            {jugados.length > 0 && (
+              <div className="card" style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 11, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
+                  Jugados esta semana ({jugados.length})
+                </div>
+                {jugados.map(renderRow)}
+              </div>
+            )}
+
+            {aceptados.length > 0 && (
+              <div className="card" style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 11, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
+                  En juego — aceptados ({aceptados.length})
+                </div>
+                {aceptados.map(renderRow)}
+              </div>
+            )}
+
+            {pendientes.length > 0 && (
+              <div className="card" style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 11, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
+                  Pendientes de aceptar ({pendientes.length})
+                </div>
+                {pendientes.map(renderRow)}
+              </div>
+            )}
+
+            {inventados.length > 0 && (
+              <div className="card" style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 11, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
+                  Desafíos inventados ({inventados.length})
+                </div>
+                {inventados.map(r => (
+                  <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: '0.5px solid #f0efe8', flexWrap: 'wrap' }}>
+                    <span style={{ flex: 1, fontSize: 12, minWidth: 120 }}>
+                      <span style={{ fontWeight: 500 }}>{r.challengerName}</span>
+                      <span style={{ color: '#aaa' }}> (#{r.challengerPos})</span>
+                      <span style={{ color: '#bbb' }}> vs </span>
+                      <span style={{ fontWeight: 500 }}>{r.challengedName}</span>
+                      <span style={{ color: '#aaa' }}> (#{r.challengedPos})</span>
+                      <span style={{ fontSize: 10, color: '#1D9E75', marginLeft: 5 }}>+ inventado</span>
+                    </span>
+                    <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                      <button style={bSim(r.ganador === 'challenger')} onClick={() => setGanador(r.id, r.ganador === 'challenger' ? null : 'challenger')}>Gana A</button>
+                      <button style={bSim(r.ganador === 'challenged')} onClick={() => setGanador(r.id, r.ganador === 'challenged' ? null : 'challenged')}>Gana B</button>
+                      <button style={bSim(r.ganador === null)} onClick={() => setGanador(r.id, null)}>Sin jugar</button>
+                      <button style={{ fontSize: 11, padding: '3px 7px', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit', border: '0.5px solid #f09595', background: '#fff5f5', color: '#A32D2D' }}
+                        onClick={() => setSimRows(rows => rows.filter(x => x.id !== r.id))}>✕</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {simAddModal ? (
+              <div className="card" style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 11, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 10 }}>
+                  Agregar desafío simulado
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                  <select value={simNewA} onChange={e => setSimNewA(e.target.value)}
+                    style={{ flex: 1, fontSize: 12, padding: '6px 8px', borderRadius: 8, border: '0.5px solid #ccc', minWidth: 120 }}>
+                    <option value="">Jugador A…</option>
+                    {activePlayers.filter(p => p.id !== simNewB).map(p => (
+                      <option key={p.id} value={p.id}>#{p.posicion} {p.nombre} {p.apellido}</option>
+                    ))}
+                  </select>
+                  <select value={simNewB} onChange={e => setSimNewB(e.target.value)}
+                    style={{ flex: 1, fontSize: 12, padding: '6px 8px', borderRadius: 8, border: '0.5px solid #ccc', minWidth: 120 }}>
+                    <option value="">Jugador B…</option>
+                    {activePlayers.filter(p => p.id !== simNewA).map(p => (
+                      <option key={p.id} value={p.id}>#{p.posicion} {p.nombre} {p.apellido}</option>
+                    ))}
+                  </select>
+                </div>
+                <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+                  <button style={bSim(simNewGanador === 'challenger')} onClick={() => setSimNewGanador(simNewGanador === 'challenger' ? null : 'challenger')}>Gana A</button>
+                  <button style={bSim(simNewGanador === 'challenged')} onClick={() => setSimNewGanador(simNewGanador === 'challenged' ? null : 'challenged')}>Gana B</button>
+                  <button style={bSim(simNewGanador === null)} onClick={() => setSimNewGanador(null)}>Sin jugar</button>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="btn" onClick={() => { setSimAddModal(false); setSimNewA(''); setSimNewB(''); setSimNewGanador(null) }}>Cancelar</button>
+                  <button className="btn btn-accept" disabled={!simNewA || !simNewB}
+                    onClick={() => {
+                      const pA = players.find(p => p.id === simNewA)
+                      const pB = players.find(p => p.id === simNewB)
+                      setSimRows(rows => [...rows, {
+                        id: `sim-${Date.now()}`,
+                        challenger_id: simNewA,
+                        challenged_id: simNewB,
+                        challengerName: `${pA.nombre} ${pA.apellido}`,
+                        challengedName: `${pB.nombre} ${pB.apellido}`,
+                        challengerPos: pA.posicion,
+                        challengedPos: pB.posicion,
+                        ganador: simNewGanador,
+                        status: 'invented',
+                        isInvented: true,
+                        created_at: new Date().toISOString(),
+                      }])
+                      setSimAddModal(false); setSimNewA(''); setSimNewB(''); setSimNewGanador(null)
+                    }}>
+                    Añadir
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button className="btn" style={{ width: '100%', marginBottom: 10, fontSize: 12 }}
+                onClick={() => { setSimAddModal(true); setSimNewA(''); setSimNewB(''); setSimNewGanador(null) }}>
+                + Agregar desafío simulado
+              </button>
+            )}
+
+            <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+              <button className="btn btn-accept" style={{ flex: 1 }} onClick={runSim}>Simular →</button>
+              <button className="btn" onClick={() => { setSimRows(initSimRows()); setSimResult(null); setSimAddModal(false) }}>Limpiar</button>
+            </div>
+
+            {simResult && (
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
+                  Resultado simulado — semana {(simResult.cfg?.semana || 0) + 1}
+                </div>
+
+                <div className="card" style={{ marginBottom: 10 }}>
+                  <div style={{ fontSize: 11, fontWeight: 500, color: '#6b6b6b', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
+                    Movimientos ({simResult.movements.length})
+                  </div>
+                  {simResult.movements.length === 0
+                    ? <div style={{ fontSize: 12, color: '#888' }}>Sin cambios de posiciones.</div>
+                    : simResult.movements.map((m, i) => (
+                      <div key={i} style={{ display: 'flex', gap: 8, padding: '6px 0', borderBottom: '0.5px solid #eee', alignItems: 'flex-start' }}>
+                        <span style={{ fontSize: 12, fontWeight: 500, color: m.delta > 0 ? '#3B6D11' : '#A32D2D', flexShrink: 0, width: 32 }}>
+                          {m.delta > 0 ? `↑${m.delta}` : `↓${Math.abs(m.delta)}`}
+                        </span>
+                        <div style={{ flex: 1, fontSize: 12 }}>
+                          <span style={{ fontWeight: 500 }}>{m.nombre}</span>
+                          <span style={{ color: '#888' }}> #{m.desde} → #{m.hasta}</span>
+                          <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>{m.motivo}</div>
+                        </div>
+                      </div>
+                    ))
+                  }
+                </div>
+
+                {simResult.notas.length > 0 && (
+                  <div className="card" style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: 11, fontWeight: 500, color: '#6b6b6b', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
+                      Notas ({simResult.notas.length})
+                    </div>
+                    {simResult.notas.map((n, i) => (
+                      <div key={i} style={{ fontSize: 12, color: '#666', padding: '4px 0', display: 'flex', gap: 6 }}>
+                        <i className="ti ti-info-circle" style={{ fontSize: 13, flexShrink: 0, color: '#888' }} aria-hidden="true" />
+                        {n}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="card" style={{ marginBottom: 10 }}>
+                  <div style={{ fontSize: 11, fontWeight: 500, color: '#6b6b6b', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
+                    Ranking resultante
+                  </div>
+                  {simResult.sim.map(p => {
+                    const orig = simResult.originalPos[p.id]
+                    const delta = orig - p.posicion
+                    return (
+                      <div key={p.id} style={{ display: 'flex', gap: 8, padding: '5px 0', borderBottom: '0.5px solid #f0efe8', alignItems: 'center' }}>
+                        <span style={{ width: 22, fontSize: 12, color: '#888', textAlign: 'center' }}>{p.posicion}</span>
+                        <span style={{ flex: 1, fontSize: 12 }}>{p.nombre} {p.apellido}</span>
+                        <span style={{ fontSize: 11, width: 30, textAlign: 'right', color: delta > 0 ? '#3B6D11' : delta < 0 ? '#A32D2D' : '#bbb' }}>
+                          {delta > 0 ? `↑${delta}` : delta < 0 ? `↓${Math.abs(delta)}` : '—'}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       {/* ── MODALS ── */}
 
