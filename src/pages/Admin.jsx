@@ -261,51 +261,30 @@ export default function Admin() {
     const refreshed = sim
     const nuevaSemana = (cfg?.semana || 0) + 1
 
+    const today = new Date()
+    const todayStr = today.toISOString().split('T')[0]
+    const nextWed = new Date(today)
+    const daysToWed = (3 - today.getDay() + 7) % 7 || 7
+    nextWed.setDate(today.getDate() + daysToWed)
+    const nextThu = new Date(today)
+    const daysToThu = (4 - today.getDay() + 7) % 7 || 7
+    nextThu.setDate(today.getDate() + daysToThu)
+
     try {
-      // ── PASO 1: Guardar historial PRIMERO (si falla, no se toca nada más) ──
-      const { error: histError } = await supabase.from('ranking_history').upsert({
-        semana: nuevaSemana,
-        fecha: new Date().toISOString().split('T')[0],
-        publicado_por: 'manual',
+      const { error } = await supabase.rpc('publish_ranking', { payload: {
+        nueva_semana:     nuevaSemana,
+        fecha:            todayStr,
         hora_publicacion: new Date().toISOString(),
-        data: refreshed.map(p => ({ id: p.id, nombre: p.nombre, apellido: p.apellido, posicion: p.posicion, victorias: p.victorias, derrotas: p.derrotas })),
-        movimientos: { movements, notas, penaltyLog },
-      }, { onConflict: 'semana' })
-      if (histError) {
-        ntf('Error al guardar el historial: ' + histError.message + '. No se aplicaron cambios.', 'err')
-        return
-      }
+        fecha_cierre:     nextWed.toISOString().split('T')[0],
+        fecha_ranking:    nextThu.toISOString().split('T')[0],
+        historial_data:   refreshed.map(p => ({ id: p.id, nombre: p.nombre, apellido: p.apellido, posicion: p.posicion, victorias: p.victorias, derrotas: p.derrotas })),
+        movimientos:      { movements, notas, penaltyLog },
+        snapshot_data:    refreshed.map(p => ({ player_id: p.id, posicion: p.posicion, posicion_anterior: originalPos[p.id] })),
+        jugadores:        sim.map(p => ({ id: p.id, posicion: p.posicion, posicion_anterior: originalPos[p.id], semanas_inactivo: nuevasSemanas[p.id] ?? 0 })),
+        challenge_ids:    pending.map(c => c.id),
+      }})
+      if (error) { ntf('Error al publicar: ' + error.message + '. No se aplicaron cambios.', 'err'); return }
 
-      // ── PASO 2: Snapshot (para poder deshacer) ──
-      await supabase.from('ranking_snapshots').insert({
-        data: refreshed.map(p => ({ player_id: p.id, posicion: p.posicion, posicion_anterior: originalPos[p.id] })),
-        applied_challenge_ids: pending.map(c => c.id)
-      })
-
-      // ── PASO 3: Actualizar posiciones (posicion_anterior = valor real previo) ──
-      await Promise.all(sim.map(p =>
-        updatePlayer(p.id, { posicion: p.posicion, posicion_anterior: originalPos[p.id], semanas_inactivo: nuevasSemanas[p.id] ?? 0 })
-      ))
-      await Promise.all(pending.map(c => updateChallenge(c.id, { ranking_applied: true })))
-
-      // ── PASO 4: Avanzar semana ──
-      const today = new Date()
-      const todayStr = today.toISOString().split('T')[0]
-      const nextWed = new Date(today)
-      const daysToWed = (3 - today.getDay() + 7) % 7 || 7
-      nextWed.setDate(today.getDate() + daysToWed)
-      const nextThu = new Date(today)
-      const daysToThu = (4 - today.getDay() + 7) % 7 || 7
-      nextThu.setDate(today.getDate() + daysToThu)
-      await supabase.from('weekly_config').update({
-        semana: nuevaSemana,
-        fecha_inicio: todayStr,
-        fecha_cierre: nextWed.toISOString().split('T')[0],
-        fecha_ranking: nextThu.toISOString().split('T')[0],
-        publicado_manual: true
-      }).eq('id', 1)
-
-      // ── PASO 5: Notificar y cerrar ──
       await notifyRankingUpdated(nuevaSemana, refreshed.slice(0, 5))
       ntf(penaltyLog.length
         ? `Ranking publicado. Penalizaciones por inactividad: ${penaltyLog.join(', ')}.`
@@ -321,19 +300,8 @@ export default function Admin() {
     if (!snapshots[0]) { ntf('No hay snapshot para deshacer.', 'warn'); return }
     if (!confirm('¿Revertir el último ranking publicado? Se restaurarán las posiciones y los partidos volverán a estar pendientes.')) return
     const snap = snapshots[0]
-    // posicion_anterior en el snapshot = posicion antes de publicar
-    await Promise.all(snap.data.map(s => updatePlayer(s.player_id, { posicion: s.posicion_anterior, posicion_anterior: s.posicion_anterior })))
-    // re-abrir los challenges que se marcaron como aplicados en esta publicación
-    const ids = snap.applied_challenge_ids
-    if (ids && ids.length) {
-      await supabase.from('challenges').update({ ranking_applied: false }).in('id', ids)
-    } else {
-      await supabase.from('challenges').update({ ranking_applied: false }).eq('status', 'completed').eq('ranking_applied', true)
-    }
-    // borrar historial y snapshot
-    const { data: hist } = await supabase.from('ranking_history').select('id').order('id', { ascending: false }).limit(1)
-    if (hist?.length) await supabase.from('ranking_history').delete().eq('id', hist[0].id)
-    await supabase.from('ranking_snapshots').delete().eq('id', snap.id)
+    const { error } = await supabase.rpc('undo_ranking', { p_snapshot_id: snap.id })
+    if (error) { ntf('Error al revertir: ' + error.message, 'err'); return }
     ntf('Ranking revertido. Posiciones y partidos restaurados.', 'warn')
     load()
   }
