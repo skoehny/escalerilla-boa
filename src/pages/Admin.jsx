@@ -251,12 +251,14 @@ export default function Admin() {
   }
 
   async function publishRanking(plan) {
-    // TEMPORAL: solo SKY puede publicar el ranking ─── borrar cuando se habilite a todos
-    if (sessionPlayer?.email?.trim().toLowerCase() !== 'skoehny@gmail.com') {
-      ntf('Esta acción debe ser revisada por SKY', 'err')
+    if (!sessionPlayer?.es_admin) {
+      ntf('Solo un administrador puede publicar el ranking.', 'err')
       return
     }
-    // ───────────────────────────────────────────────────────────────────────────
+    if (new Date().getDay() !== 4) {
+      ntf('El ranking solo se puede publicar los jueves.', 'err')
+      return
+    }
     const { cfg, sim, originalPos, pending, penaltyLog, movements, notas, nuevasSemanas } = plan
     const refreshed = sim
     const nuevaSemana = (cfg?.semana || 0) + 1
@@ -639,6 +641,7 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
   if (loading) return <p style={{ color: '#888', fontSize: 13, padding: 24 }}>Cargando...</p>
 
   const tabs = ['acciones', 'desafíos', 'resultados', 'jugadores', 'simulador']
+  const esJueves = new Date().getDay() === 4
 
   return (
     <div>
@@ -687,17 +690,28 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
             {/* ── Ranking ── */}
             <div style={{ fontSize: 12, fontWeight: 500, color: '#6b6b6b', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 10 }}>Ranking</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <button style={{ gridColumn: '1 / -1', background: '#E1F5EE', border: '1px solid #9FE1CB', color: '#0F6E56', borderRadius: 10, padding: '14px 8px', fontSize: 14, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}
+              <button
+                disabled={!esJueves}
+                style={{
+                  gridColumn: '1 / -1',
+                  background: esJueves ? '#E1F5EE' : '#f7f6f2',
+                  border: esJueves ? '1px solid #9FE1CB' : '1px solid #e0dfd8',
+                  color: esJueves ? '#0F6E56' : '#b0afa8',
+                  borderRadius: 10, padding: '14px 8px', fontSize: 14, fontWeight: 500,
+                  cursor: esJueves ? 'pointer' : 'not-allowed',
+                  fontFamily: 'inherit'
+                }}
                 onClick={async () => {
-                  const day = new Date().getDay()
-                  if (day !== 4) {
-                    if (!confirm('⚠️ La publicación normalmente se hace los JUEVES. ¿Estás seguro de publicar hoy?')) return
-                  }
                   const plan = await computePublishPlan()
                   setPublishPreview(plan)
                 }}>
                 <i className="ti ti-trophy" style={{ verticalAlign: -2, marginRight: 6 }} aria-hidden="true" />Publicar ranking
               </button>
+              {!esJueves && (
+                <div style={{ gridColumn: '1 / -1', fontSize: 11, color: '#b0afa8', marginTop: -4 }}>
+                  El ranking solo se puede publicar los jueves.
+                </div>
+              )}
               {snapshots.length > 0 && (
                 <button style={{ gridColumn: '1 / -1', background: '#f7f6f2', border: '1px solid #e0dfd8', color: '#b0afa8', borderRadius: 10, padding: '14px 8px', fontSize: 14, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}
                   onClick={undoRanking}>
