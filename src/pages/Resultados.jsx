@@ -161,13 +161,15 @@ export default function Resultados() {
     if (isNaN(sa) || isNaN(sb)) { ntf('Ingresa los games de ambos.', 'err'); return }
     if (sa < 0 || sb < 0 || sa > 9 || sb > 9) { ntf('Games entre 0 y 9.', 'err'); return }
     if (sa === sb) { ntf('No puede terminar empatado.', 'err'); return }
-    // Si el slot vino del formulario inline (no estaba en BD), guardarlo primero
+    // Fecha del partido: ingresada por el usuario, o hoy en hora local (no UTC)
+    const finalSlotDay = slotInfo[c.id]?.day || c.slot_day || new Date().toLocaleDateString('en-CA')
+
+    // Cancha/hora: guardar solo si el usuario las ingresó (slot_day va en el update principal)
     const inlineSlot = slotInfo[c.id]
-    if (inlineSlot?.court || inlineSlot?.day || inlineSlot?.hour) {
+    if (inlineSlot?.court || inlineSlot?.hour) {
       await updateChallenge(c.id, {
         slot_court: c.slot_court,
-        slot_day: c.slot_day,
-        slot_hour: c.slot_hour,
+        slot_hour:  c.slot_hour,
       })
     }
 
@@ -191,6 +193,7 @@ export default function Resultados() {
       // Guardar resultado — NO mover ranking, espera al jueves
       await updateChallenge(c.id, {
         status: 'completed', score_a: sa, score_b: sb, ganador: winner,
+        slot_day: finalSlotDay,
         anotado_por: player.id, validado_por: null, resultado_validado: false,
         ...(isTB ? { tiebreak_a: tbA, tiebreak_b: tbB } : {})
       })
