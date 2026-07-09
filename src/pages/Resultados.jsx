@@ -161,10 +161,6 @@ export default function Resultados() {
     if (isNaN(sa) || isNaN(sb)) { ntf('Ingresa los games de ambos.', 'err'); return }
     if (sa < 0 || sb < 0 || sa > 9 || sb > 9) { ntf('Games entre 0 y 9.', 'err'); return }
     if (sa === sb) { ntf('No puede terminar empatado.', 'err'); return }
-    if (!c.slot_court) { ntf('Debes indicar la cancha donde jugaron.', 'err'); return }
-    if (!c.slot_day) { ntf('Debes indicar la fecha del partido.', 'err'); return }
-    if (!c.slot_hour) { ntf('Debes indicar la hora del partido.', 'err'); return }
-
     // Si el slot vino del formulario inline (no estaba en BD), guardarlo primero
     const inlineSlot = slotInfo[c.id]
     if (inlineSlot?.court || inlineSlot?.day || inlineSlot?.hour) {
@@ -333,7 +329,7 @@ export default function Resultados() {
                       </div>
                       <div className="form-row" style={{ marginBottom: 0 }}>
                         <label>Fecha *</label>
-                        <input type="date" value={slotInfo[c.id]?.day || c.slot_day || new Date().toLocaleDateString('en-CA')}
+                        <input type="date" value={slotInfo[c.id]?.day || c.slot_day || ''}
                           onChange={e => {
                             const val = e.target.value
                             setSlotInfo(s => ({ ...s, [c.id]: { ...s[c.id], day: val } }))
