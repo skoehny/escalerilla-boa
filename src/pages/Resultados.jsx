@@ -186,8 +186,6 @@ export default function Resultados() {
     const winner = sa > sb ? 'challenger' : 'challenged'
     const winnerP = winner === 'challenger' ? c.challenger : c.challenged
     const loserP = winner === 'challenger' ? c.challenged : c.challenger
-    const winnerFull = players.find(p => p.id === winnerP?.id)
-    const loserFull = players.find(p => p.id === loserP?.id)
 
     try {
       // Guardar resultado — NO mover ranking, espera al jueves
@@ -197,9 +195,8 @@ export default function Resultados() {
         anotado_por: player.id, validado_por: null, resultado_validado: false,
         ...(isTB ? { tiebreak_a: tbA, tiebreak_b: tbB } : {})
       })
-      // Solo actualizar victorias/derrotas
-      if (winnerFull) await import('../lib/supabase').then(m => m.updatePlayer(winnerFull.id, { victorias: (winnerFull.victorias || 0) + 1 }))
-      if (loserFull) await import('../lib/supabase').then(m => m.updatePlayer(loserFull.id, { derrotas: (loserFull.derrotas || 0) + 1 }))
+      // Recalcular stats de ambos desde los partidos reales (fuente única de verdad)
+      await supabase.rpc('recalcular_stats', { p_a: c.challenger_id, p_b: c.challenged_id })
 
       await notifyResult(c.challenger, c.challenged, sa, sb, winnerP, null)
       // Refrescar sesión del jugador actual

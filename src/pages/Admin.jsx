@@ -559,8 +559,7 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
         ranking_applied: false, resultado_validado: false,
         ...(isTB ? { tiebreak_a: parseInt(m.tiebreak_a), tiebreak_b: parseInt(m.tiebreak_b) } : { tiebreak_a: null, tiebreak_b: null })
       })
-      if (winnerP) await updatePlayer(winnerP.id, { victorias: (winnerP.victorias || 0) + 1 })
-      if (loserP) await updatePlayer(loserP.id, { derrotas: (loserP.derrotas || 0) + 1 })
+      await supabase.rpc('recalcular_stats', { p_a: m.challenger_id, p_b: m.challenged_id })
       await notifyResult(ch, cd, sa, sb, winnerP, null)
       setResultModal(null)
       ntf(`Resultado guardado: ${sa}–${sb}. ${winnerP?.nombre} gana.`)
@@ -588,6 +587,8 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
       updates.tiebreak_a = null; updates.tiebreak_b = null
     }
     await updateChallenge(m.id, updates)
+    // Recalcular stats: si el editar cambió el ganador, recontar corrige a ambos
+    await supabase.rpc('recalcular_stats', { p_a: m.challenger_id, p_b: m.challenged_id })
     setEditResultModal(null)
     ntf('Resultado editado.')
     load()
@@ -607,8 +608,7 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
         ganador: m.wo_loser === 'challenger' ? 'challenged' : 'challenger',
         is_wo: true,
       })
-      if (winner) await updatePlayer(winner.id, { victorias: (winner.victorias || 0) + 1 })
-      if (loser) await updatePlayer(loser.id, { derrotas: (loser.derrotas || 0) + 1 })
+      await supabase.rpc('recalcular_stats', { p_a: m.challenger_id, p_b: m.challenged_id })
       // Mover ranking
       if (m.wo_loser === 'challenged' && ch && cd && ch.posicion > cd.posicion) {
         const wp = ch.posicion, lp = cd.posicion
