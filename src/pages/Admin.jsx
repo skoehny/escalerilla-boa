@@ -47,7 +47,7 @@ function calcPlan(simPlayers, simChallenges, cfg) {
   const addReason = (id, txt) => { (reasons[id] = reasons[id] || []).push(txt) }
   const notas = []
 
-  // ── PASO 1: Penalizaciones por inactividad (ANTES de los resultados) ──
+  // ── COMPARTIDO: partidos pendientes, quién jugó y penalizaciones (lo usan ambos pasos) ──
 
   const pending = simChallenges
     .filter(c => c.status === 'completed' && !c.ranking_applied)
@@ -60,6 +60,7 @@ function calcPlan(simPlayers, simChallenges, cfg) {
     hasEverPlayedMap[p.id] = (p.victorias || 0) + (p.derrotas || 0) > 0 || jugaron.has(p.id)
   })
 
+  // Penalizaciones por inactividad: se CALCULAN acá (independiente de posiciones); se APLICAN en el PASO 2
   const penMap = {}
   const nuevasSemanas = {}
   const penaltyLog = []
@@ -75,27 +76,7 @@ function calcPlan(simPlayers, simChallenges, cfg) {
     addReason(p.id, `penalización por inactividad: ${n} semanas sin jugar (-${pen})${p.lesionado ? ' [lesionado]' : ''}`)
   }
 
-  const inactivos = sim.filter(p => (penMap[p.id] || 0) > 0)
-    .sort((a, b) => originalPos[b.id] - originalPos[a.id])
-  for (const inactivo of inactivos) {
-    let idx = sim.indexOf(inactivo)
-    for (let step = 0; step < penMap[inactivo.id]; step++) {
-      if (idx + 1 >= sim.length) break
-      const vecino = sim[idx + 1]
-      if ((penMap[vecino.id] || 0) > 0) break
-      if (!hasEverPlayedMap[vecino.id]) break
-      sim[idx] = vecino; sim[idx + 1] = inactivo; idx++
-    }
-  }
-
-  sim.forEach((p, i) => {
-    if (!penMap[p.id] && (i + 1) < originalPos[p.id]) {
-      addReason(p.id, 'sube por penalizaciones de jugadores más arriba')
-    }
-    p.posicion = i + 1
-  })
-
-  // ── PASO 2: Resultados de partidos (sobre el ranking ya penalizado) ──
+  // ── PASO 1: Resultados de partidos (AHORA PRIMERO — sobre las posiciones S27 sin inflar) ──
 
   for (const c of pending) {
     const ch = sim.find(p => p.id === c.challenger_id)
@@ -115,6 +96,36 @@ function calcPlan(simPlayers, simChallenges, cfg) {
       notas.push(`${nm(cd)} defendió su posición #${cd.posicion} ante ${nm(ch)} (${c.score_a}–${c.score_b}${c.is_wo ? ' WO' : ''}) — sin cambios.`)
     }
   }
+
+  // Reordenar por la posición ya modificada por los resultados: el PASO 2 asume `sim` ordenado por posición.
+  sim.sort((a, b) => a.posicion - b.posicion)
+  // Posición al ENTRAR al paso de inactividad (post-resultado), para que el motivo "sube por
+  // penalizaciones" sea fiel y no atribuya a la inactividad un ascenso causado por el resultado.
+  const posEntradaInactividad = {}
+  sim.forEach((p, i) => { posEntradaInactividad[p.id] = i + 1 })
+
+  // ── PASO 2: Penalizaciones por inactividad (AHORA DESPUÉS — sobre el ranking ya con resultados) ──
+
+  const inactivos = sim.filter(p => (penMap[p.id] || 0) > 0)
+    .sort((a, b) => originalPos[b.id] - originalPos[a.id])
+  for (const inactivo of inactivos) {
+    let idx = sim.indexOf(inactivo)
+    for (let step = 0; step < penMap[inactivo.id]; step++) {
+      if (idx + 1 >= sim.length) break
+      const vecino = sim[idx + 1]
+      if ((penMap[vecino.id] || 0) > 0) break
+      if (!hasEverPlayedMap[vecino.id]) break
+      sim[idx] = vecino; sim[idx + 1] = inactivo; idx++
+    }
+  }
+
+  sim.forEach((p, i) => {
+    if (!penMap[p.id] && (i + 1) < posEntradaInactividad[p.id]) {
+      addReason(p.id, 'sube por penalizaciones de jugadores más arriba')
+    }
+    p.posicion = i + 1
+  })
+
   sim.sort((a, b) => a.posicion - b.posicion)
 
   const movements = sim
