@@ -36,10 +36,11 @@ function getNextWednesday() {
 
 function ini(n, a) { return ((n?.[0] || '') + (a?.[0] || '')).toUpperCase() }
 
-function calcPlan(simPlayers, simChallenges, cfg) {
+function calcPlan(simPlayers, simChallenges, cfg, frozenIds = []) {
   const sim = simPlayers.filter(p => p.activo && p.posicion != null)
     .sort((a, b) => a.posicion - b.posicion)
     .map(p => ({ ...p }))
+  const frozen = new Set(frozenIds)
   const originalPos = {}
   sim.forEach(p => { originalPos[p.id] = p.posicion })
   const nm = p => `${p.nombre} ${p.apellido}`
@@ -60,12 +61,21 @@ function calcPlan(simPlayers, simChallenges, cfg) {
     hasEverPlayedMap[p.id] = (p.victorias || 0) + (p.derrotas || 0) > 0 || jugaron.has(p.id)
   })
 
+  // Candidatos a congelar: no jugaron esta semana y NO son debutantes
+  const candidatosCongelar = sim
+    .filter(p => hasEverPlayedMap[p.id] && !jugaron.has(p.id))
+    .map(p => ({ id: p.id, nombre: nm(p) }))
+
   // Penalizaciones por inactividad: se CALCULAN acá (independiente de posiciones); se APLICAN en el PASO 2
   const penMap = {}
   const nuevasSemanas = {}
   const penaltyLog = []
   for (const p of sim) {
     if (!hasEverPlayedMap[p.id]) { nuevasSemanas[p.id] = 0; continue }
+    if (frozen.has(p.id)) {
+      nuevasSemanas[p.id] = p.semanas_inactivo || 0   // congela el contador (ni +1 ni 0)
+      continue                                        // no entra en penMap → no baja
+    }
     const n = jugaron.has(p.id) ? 0 : (p.semanas_inactivo || 0) + 1
     nuevasSemanas[p.id] = n
     if (n === 1) notas.push(`${nm(p)} lleva 1 semana sin jugar (sin penalización aún).`)
@@ -139,7 +149,7 @@ function calcPlan(simPlayers, simChallenges, cfg) {
     }))
     .sort((a, b) => a.hasta - b.hasta)
 
-  return { cfg, sim, originalPos, pending, penaltyLog, movements, notas, nuevasSemanas }
+  return { cfg, sim, originalPos, pending, penaltyLog, movements, notas, nuevasSemanas, candidatosCongelar }
 }
 
 export default function Admin() {
@@ -161,6 +171,8 @@ export default function Admin() {
   const [newPlayerModal, setNewPlayerModal] = useState(null)
   const [confirmPublish, setConfirmPublish] = useState(false)
   const [publishPreview, setPublishPreview] = useState(null) // plan calculado antes de publicar
+  const [frozenIds, setFrozenIds]   = useState([])           // congelados para publicar
+  const [freezeStep, setFreezeStep] = useState(null)         // paso intermedio: { candidatos } | null
   const [inviteShare, setInviteShare] = useState(null) // invitación pendiente de enviar por WA
   const [publishPin, setPublishPin] = useState('')
   const [pinModal, setPinModal] = useState(null) // { action: fn }
@@ -177,6 +189,7 @@ export default function Admin() {
   const [simNewA, setSimNewA]             = useState('')
   const [simNewB, setSimNewB]             = useState('')
   const [simNewGanador, setSimNewGanador] = useState(null)
+  const [simFrozenIds, setSimFrozenIds]   = useState([])   // congelados para simular (separado de publicar)
 
   useEffect(() => { load() }, [])
 
@@ -214,9 +227,9 @@ export default function Admin() {
   }
 
   // Calcula el plan de publicación SIN tocar la BD: posiciones nuevas + explicación de cada movimiento
-  async function computePublishPlan() {
+  async function computePublishPlan(frozenIds = []) {
     const { data: cfg } = await supabase.from('weekly_config').select('*').eq('id', 1).single()
-    return calcPlan(players, challenges, cfg)
+    return calcPlan(players, challenges, cfg, frozenIds)
   }
 
   // ── Simulador ────────────────────────────────────────────────
@@ -258,7 +271,7 @@ export default function Admin() {
 
   async function runSim() {
     const { data: cfg } = await supabase.from('weekly_config').select('*').eq('id', 1).single()
-    setSimResult(calcPlan(players, buildSimChallenges(), cfg))
+    setSimResult(calcPlan(players, buildSimChallenges(), cfg, simFrozenIds))
   }
 
   async function publishRanking(plan) {
@@ -713,8 +726,9 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
                   fontFamily: 'inherit'
                 }}
                 onClick={async () => {
-                  const plan = await computePublishPlan()
-                  setPublishPreview(plan)
+                  const plan = await computePublishPlan()          // 1ª pasada SIN congelados
+                  setFrozenIds([])                                 // reset selección
+                  setFreezeStep({ candidatos: plan.candidatosCongelar })
                 }}>
                 <i className="ti ti-trophy" style={{ verticalAlign: -2, marginRight: 6 }} aria-hidden="true" />Publicar ranking
               </button>
@@ -1010,6 +1024,13 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
         const pendientes = simRows.filter(r => r.status === 'pending')
         const inventados = simRows.filter(r => r.isInvented)
 
+        // Candidatos a congelar según el estado del simulador (misma regla que calcPlan)
+        const simJugaron = new Set()
+        simRows.filter(r => r.ganador !== null).forEach(r => { simJugaron.add(r.challenger_id); simJugaron.add(r.challenged_id) })
+        const simCandidatos = activePlayers
+          .filter(p => (p.victorias || 0) + (p.derrotas || 0) > 0 && !simJugaron.has(p.id))
+          .map(p => ({ id: p.id, nombre: `${p.nombre} ${p.apellido}` }))
+
         return (
           <div>
             <div style={{ background: '#FFF8E1', border: '1px solid #FFE082', borderRadius: 8, padding: '8px 12px', fontSize: 12, color: '#7A5C00', marginBottom: 14 }}>
@@ -1126,6 +1147,22 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
                 onClick={() => { setSimAddModal(true); setSimNewA(''); setSimNewB(''); setSimNewGanador(null) }}>
                 + Agregar desafío simulado
               </button>
+            )}
+
+            {simCandidatos.length > 0 && (
+              <div className="card" style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 11, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
+                  Congelar inactividad ({simFrozenIds.length})
+                </div>
+                {simCandidatos.map(c => (
+                  <label key={c.id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '6px 0', borderBottom: '0.5px solid #f0efe8', cursor: 'pointer' }}>
+                    <input type="checkbox"
+                      checked={simFrozenIds.includes(c.id)}
+                      onChange={e => setSimFrozenIds(ids => e.target.checked ? [...ids, c.id] : ids.filter(x => x !== c.id))} />
+                    <span style={{ fontSize: 12 }}>{c.nombre}</span>
+                  </label>
+                ))}
+              </div>
             )}
 
             <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
@@ -1478,6 +1515,45 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
       )}
 
       {/* Vista previa de publicación */}
+      {freezeStep && (
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setFreezeStep(null) }}>
+          <div className="modal" style={{ maxHeight: '80vh', overflowY: 'auto' }}>
+            <h3>Perdonar inactividad</h3>
+
+            {freezeStep.candidatos.length === 0 ? (
+              <p style={{ fontSize: 13, color: '#888', background: '#f5f4f0', borderRadius: 8, padding: '10px 12px', marginBottom: 12 }}>
+                Nadie será penalizado esta semana.
+              </p>
+            ) : (
+              <>
+                <p style={{ fontSize: 13, color: '#555', marginBottom: 12 }}>
+                  Estos jugadores no jugaron esta semana y sumarán inactividad. ¿Perdonar a alguno?
+                </p>
+                <div style={{ marginBottom: 8 }}>
+                  {freezeStep.candidatos.map(c => (
+                    <label key={c.id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '8px 0', borderBottom: '0.5px solid #eee', cursor: 'pointer' }}>
+                      <input type="checkbox"
+                        checked={frozenIds.includes(c.id)}
+                        onChange={e => setFrozenIds(ids => e.target.checked ? [...ids, c.id] : ids.filter(x => x !== c.id))} />
+                      <span style={{ fontSize: 13 }}>{c.nombre}</span>
+                    </label>
+                  ))}
+                </div>
+              </>
+            )}
+
+            <div className="modal-actions">
+              <button className="btn" onClick={() => setFreezeStep(null)}>Cancelar</button>
+              <button className="btn btn-accept" onClick={async () => {
+                const plan = await computePublishPlan(frozenIds)   // 2ª pasada CON congelados
+                setFreezeStep(null)
+                setPublishPreview(plan)                            // → abre la preview existente
+              }}>Continuar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {publishPreview && (
         <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setPublishPreview(null) }}>
           <div className="modal" style={{ maxHeight: '80vh', overflowY: 'auto' }}>
