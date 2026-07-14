@@ -148,7 +148,7 @@ export default function Ranking() {
           // Rango de desafío: hasta max_puestos_desafio puestos hacia arriba (regla 3).
           // La UI filtra por UX; la RPC crear_desafio es la ley.
           const myPos = player?.posicion || 999
-          const maxPuestos = v2cfg?.max_puestos_desafio ?? 5
+          const maxPuestos = v2cfg?.max_puestos_desafio ?? 4
           const inRange = p.posicion < myPos && p.posicion >= myPos - maxPuestos
           const canChallenge = !isMe && inRange && !p.lesionado && !player?.lesionado && !hasActive && !targetHasActive
 

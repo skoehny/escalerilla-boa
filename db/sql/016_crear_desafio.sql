@@ -27,11 +27,11 @@ DROP POLICY IF EXISTS ranking_log_read ON public.ranking_log;
 CREATE POLICY ranking_log_read ON public.ranking_log FOR SELECT USING (true);
 
 -- ── v2_config: columna (idempotente) + política de UPDATE ────────────
-ALTER TABLE v2_config ADD COLUMN IF NOT EXISTS max_puestos_desafio integer NOT NULL DEFAULT 5;
--- Reglamento: el rango máximo de desafío es 5 puestos hacia arriba. El ALTER
--- IF NOT EXISTS no cambia el valor de una columna preexistente (venía en 4 desde
--- la mig 011), así que lo fijamos explícitamente para que aplicar la 016 lo migre.
-UPDATE v2_config SET max_puestos_desafio = 5 WHERE id = 1;
+ALTER TABLE v2_config ADD COLUMN IF NOT EXISTS max_puestos_desafio integer NOT NULL DEFAULT 4;
+-- Reglamento: el rango máximo de desafío es 4 puestos hacia arriba (configurable;
+-- tendrá panel en la etapa H). El ALTER IF NOT EXISTS no cambia el valor de una
+-- columna preexistente, así que lo fijamos explícitamente al aplicar la 016.
+UPDATE v2_config SET max_puestos_desafio = 4 WHERE id = 1;
 DROP POLICY IF EXISTS v2_config_update ON v2_config;
 CREATE POLICY v2_config_update ON v2_config FOR UPDATE USING (true) WITH CHECK (true);
 

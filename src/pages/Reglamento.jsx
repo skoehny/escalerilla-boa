@@ -8,7 +8,7 @@ export default function Reglamento() {
 
       <Rule n="1" title="Sistema de ranking y desafíos">
         <p>El ranking es una lista ordenada de jugadores según su nivel demostrado en cancha. Solo puntúa ganar partidos, no los games por partido.</p>
-        <p style={{ marginTop: 8 }}><strong>Rango de desafío:</strong> Puedes desafiar hasta 5 posiciones por encima. Los jugadores lesionados no pueden ser desafiados.</p>
+        <p style={{ marginTop: 8 }}><strong>Rango de desafío:</strong> Puedes desafiar hasta 4 posiciones por encima (el rango lo define la administración y puede ajustarse). Los jugadores lesionados no pueden ser desafiados.</p>
         <p style={{ marginTop: 8 }}><strong>Wild Card:</strong> Cada jugador tiene 1 Wild Card por año (se resetea el 1 de enero) que permite desafiar a cualquier posición por encima, sin límite de rango.</p>
         <p style={{ marginTop: 8 }}><strong>Si gana el desafiante:</strong> Sube a la posición del derrotado. El derrotado y todos los jugadores entre ambos bajan una posición. <strong>El ranking se actualiza al instante</strong>, apenas se registra el resultado.</p>
         <p style={{ marginTop: 8 }}><strong>Si gana el desafiado:</strong> El ranking no se mueve.</p>
