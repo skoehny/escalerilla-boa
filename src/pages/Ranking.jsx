@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getPlayers, createChallenge, getChallenges, supabase } from '../lib/supabase'
+import { getPlayers, getChallenges, supabase } from '../lib/supabase'
 import { notifyChallengeSent } from '../lib/notify'
 import { useSession } from '../components/SessionContext'
 
@@ -40,13 +40,15 @@ export default function Ranking() {
   const [myStats, setMyStats] = useState({ wins: 0, losses: 0 })
   const [playedThisWeek, setPlayedThisWeek] = useState(false)
   const [weekConfig, setWeekConfig] = useState(null)
+  const [v2cfg, setV2cfg] = useState(null)
 
   useEffect(() => { load() }, [])
 
   async function load() {
     try {
-      const [pl, ch, { data: cfg }] = await Promise.all([getPlayers(), getChallenges(), supabase.from('weekly_config').select('*').eq('id', 1).single()])
+      const [pl, ch, { data: cfg }, { data: cfg2 }] = await Promise.all([getPlayers(), getChallenges(), supabase.from('weekly_config').select('*').eq('id', 1).single(), supabase.from('v2_config').select('*').eq('id', 1).single()])
       setWeekConfig(cfg)
+      setV2cfg(cfg2)
       setPlayers(pl)
       const active = ch.some(c =>
         (c.challenger_id === player?.id || c.challenged_id === player?.id) &&
@@ -82,18 +84,18 @@ export default function Ranking() {
 
   async function handleChallenge(target, isWildcard = false) {
     try {
-      const d = new Date()
-      while (d.getDay() !== 3) d.setDate(d.getDate() + 1)
-      const deadline = d.toISOString().split('T')[0]
-      await createChallenge({ challenger_id: player.id, challenged_id: target.id, deadline, is_wildcard: isWildcard })
-      if (isWildcard) {
-        await supabase.from('players').update({ wildcard_usada: true }).eq('id', player.id)
-        updateSession({ ...player, wildcard_usada: true })
-      }
+      // La RPC es la ley: valida rango, 1 desafío activo, lesionado, wildcard, etc.
+      const { error } = await supabase.rpc('crear_desafio', {
+        p_challenger: player.id,
+        p_challenged: target.id,
+        p_is_wildcard: isWildcard,
+      })
+      if (error) throw error
+      if (isWildcard) updateSession({ ...player, wildcard_usada: true })
       await notifyChallengeSent(player, target)
       notify(`${isWildcard ? '⭐ Wild Card usada — ' : ''}Desafío enviado a ${target.nombre} ${target.apellido}.`)
       load()
-    } catch (err) { notify(err.message, 'err') }
+    } catch (err) { notify(err.message || 'No se pudo crear el desafío.', 'err') }
   }
 
   if (loading) return <p style={{ color: '#888', fontSize: 13, textAlign: 'center', padding: 24 }}>Cargando ranking...</p>
@@ -143,14 +145,12 @@ export default function Ranking() {
             (c.status === 'pending' || c.status === 'accepted' ||
              (c.status === 'completed' && c.ranking_applied === false))
           )
-          // Calcular rango dinámico: 3 rivales disponibles (no lesionados) por encima
+          // Rango de desafío: hasta max_puestos_desafio puestos hacia arriba (regla 3).
+          // La UI filtra por UX; la RPC crear_desafio es la ley.
           const myPos = player?.posicion || 999
-          const availableAbove = players
-            .filter(x => x.posicion < myPos && !x.lesionado)
-            .sort((a, b) => b.posicion - a.posicion) // más cercanos primero
-            .slice(0, 3) // los 3 más cercanos disponibles
-          const inRange = availableAbove.some(x => x.id === p.id)
-          const canChallenge = !isMe && inRange && !p.lesionado && !player?.lesionado && !hasActive && !targetHasActive && !playedThisWeek
+          const maxPuestos = v2cfg?.max_puestos_desafio ?? 5
+          const inRange = p.posicion < myPos && p.posicion >= myPos - maxPuestos
+          const canChallenge = !isMe && inRange && !p.lesionado && !player?.lesionado && !hasActive && !targetHasActive
 
           return (
             <div key={p.id} className="row-item" style={isMe ? { background: '#f5f4f0', borderRadius: 8, padding: '8px', margin: '0 -6px' } : {}}>
@@ -174,8 +174,8 @@ export default function Ranking() {
                 </button>
               )}
               {!canChallenge && !isMe && !hasActive && !player?.lesionado && !p.lesionado && !targetHasActive
-                && !player?.wildcard_usada && p.posicion < (player?.posicion || 999)
-                && !inRange && !playedThisWeek && (
+                && !player?.wildcard_usada && p.posicion < myPos
+                && !inRange && (
                 <button className="btn btn-warn" style={{ padding: '3px 10px', fontSize: 12 }}
                   onClick={() => {
                     if (window.confirm(`¿Usar tu Wild Card para desafiar a ${p.nombre} ${p.apellido} (#${p.posicion})? Solo tienes 1 por año.`)) {

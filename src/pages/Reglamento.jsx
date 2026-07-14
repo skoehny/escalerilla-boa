@@ -8,11 +8,11 @@ export default function Reglamento() {
 
       <Rule n="1" title="Sistema de ranking y desafíos">
         <p>El ranking es una lista ordenada de jugadores según su nivel demostrado en cancha. Solo puntúa ganar partidos, no los games por partido.</p>
-        <p style={{ marginTop: 8 }}><strong>Rango de desafío:</strong> Puedes desafiar hasta 3 posiciones por encima. Si hay jugadores lesionados dentro de ese rango, el rango se amplía para siempre tener 3 rivales disponibles.</p>
+        <p style={{ marginTop: 8 }}><strong>Rango de desafío:</strong> Puedes desafiar hasta 5 posiciones por encima. Los jugadores lesionados no pueden ser desafiados.</p>
         <p style={{ marginTop: 8 }}><strong>Wild Card:</strong> Cada jugador tiene 1 Wild Card por año (se resetea el 1 de enero) que permite desafiar a cualquier posición por encima, sin límite de rango.</p>
-        <p style={{ marginTop: 8 }}><strong>Si gana el desafiante:</strong> Sube a la posición del derrotado. El derrotado y todos los jugadores entre ambos bajan una posición. El ranking se actualiza cada jueves.</p>
+        <p style={{ marginTop: 8 }}><strong>Si gana el desafiante:</strong> Sube a la posición del derrotado. El derrotado y todos los jugadores entre ambos bajan una posición. <strong>El ranking se actualiza al instante</strong>, apenas se registra el resultado.</p>
         <p style={{ marginTop: 8 }}><strong>Si gana el desafiado:</strong> El ranking no se mueve.</p>
-        <p style={{ marginTop: 8 }}><strong>Solo 1 desafío activo</strong> por jugador a la vez. Un jugador no puede desafiar ni ser desafiado si ya tiene un partido activo o jugó en la semana en curso.</p>
+        <p style={{ marginTop: 8 }}><strong>Solo 1 desafío activo</strong> por jugador a la vez: no puedes desafiar ni ser desafiado si ya tienes un desafío pendiente o aceptado.</p>
       </Rule>
 
       <Rule n="2" title="Normas de juego">
@@ -24,10 +24,10 @@ export default function Reglamento() {
         <p style={{ marginTop: 8 }}><strong>Inscripción:</strong> $15.000 — incluye premios y asado.</p>
       </Rule>
 
-      <Rule n="3" title="Plazos y ciclo semanal">
-        <p><strong>48 horas</strong> para confirmar o rechazar un desafío.</p>
-        <p style={{ marginTop: 8 }}><strong>1 partido máximo</strong> por semana. El ciclo cierra el miércoles y el ranking se publica el jueves.</p>
-        <p style={{ marginTop: 8 }}><strong>Publicación del ranking:</strong> La actualización del ranking la realiza el administrador de forma manual, una vez verificados y cargados todos los resultados de la semana. Puede hacerse el jueves o cuando estén todos los partidos resueltos.</p>
+      <Rule n="3" title="Plazos y expiración">
+        <p><strong>Expiración:</strong> un desafío expira automáticamente a los <strong>7 días</strong> de creado si no se juega.</p>
+        <p style={{ marginTop: 8 }}><strong>Ranking en vivo:</strong> el ranking se actualiza al instante con cada resultado. Ya no hay publicación manual.</p>
+        <p style={{ marginTop: 8 }}><strong>Foto semanal:</strong> cada jueves se genera automáticamente una foto del ranking, con las flechas de la semana y un resumen compartible.</p>
         <p style={{ marginTop: 8 }}><strong>Rechazos:</strong> Máximo 2 rechazos por mes.</p>
       </Rule>
 
@@ -65,7 +65,7 @@ export default function Reglamento() {
         <p>Cualquiera de los dos jugadores puede registrar el resultado de un partido aceptado.</p>
         <p style={{ marginTop: 8 }}><strong>Datos obligatorios:</strong> para guardar un resultado es obligatorio indicar cancha, fecha, hora y marcador. Sin todos esos datos no se puede guardar (aplica también al administrador).</p>
         <p style={{ marginTop: 8 }}><strong>Si jugaron sin que el rival aceptara por la app:</strong> el desafiante puede usar la opción "Jugamos" para registrar el resultado directamente, completando todos los datos.</p>
-        <p style={{ marginTop: 8 }}><strong>Validación:</strong> el rival puede editar el resultado si no está de acuerdo, o validarlo para dejarlo definitivo. Mientras no esté validado, cualquiera de los dos puede cancelar el resultado y volver a ingresarlo. Si hay discrepancia, el administrador resuelve.</p>
+        <p style={{ marginTop: 8 }}><strong>Validar y corregir (ventana de 24 horas):</strong> apenas se registra un resultado el ranking se mueve al instante. Durante las <strong>24 horas</strong> siguientes, cualquiera de los dos jugadores puede <strong>Validar</strong> el resultado (lo deja definitivo) o <strong>Corregir</strong> el marcador (revierte y reaplica el ranking automáticamente). Pasada esa ventana, o si ya fue validado, solo el administrador puede corregir.</p>
       </Rule>
 
       <div style={{ background: '#E1F5EE', border: '0.5px solid #5DCAA5', borderRadius: 8, padding: '10px 12px', marginTop: 10, fontSize: 12, color: '#085041' }}>
