@@ -578,6 +578,13 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
   }
 
   async function saveEditResult() {
+    // v2: la edición cruda NO recalcula el ranking (updateChallenge directo) y
+    // corrompe el estado. Debe usarse Corregir (corregir_resultado), que revierte
+    // vía snapshot y reaplica. Deshabilitado hasta que la Etapa H entregue la
+    // herramienta de corrección admin buena.
+    ntf('v2: usar Corregir (recalcula el ranking). La edición cruda está deshabilitada.', 'warn')
+    return
+    // eslint-disable-next-line no-unreachable
     const m = editResultModal
     const sa = parseInt(m.score_a), sb = parseInt(m.score_b)
     if (isNaN(sa) || isNaN(sb)) { ntf('Ingresa el resultado de ambos jugadores.', 'err'); return }
@@ -905,8 +912,9 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
                       <span style={{ fontWeight: c.ganador === 'challenged' ? 500 : 400 }}>{cd?.nombre}</span>
                     </span>
                     <span className="badge badge-green" style={{ marginRight: 8 }}>{w?.nombre}</span>
-                    <button className="btn" style={{ fontSize: 11, padding: '2px 8px' }}
-                      onClick={() => setEditResultModal({ ...c, challenger: ch, challenged: cd, tiebreak_a: c.tiebreak_a || '', tiebreak_b: c.tiebreak_b || '' })}>
+                    <button className="btn" style={{ fontSize: 11, padding: '2px 8px', opacity: 0.5 }}
+                      title="v2: usar Corregir (recalcula el ranking)"
+                      onClick={() => ntf('v2: la edición cruda está deshabilitada. Usar Corregir (recalcula el ranking).', 'warn')}>
                       Editar
                     </button>
                   </div>
