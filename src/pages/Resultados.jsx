@@ -11,18 +11,11 @@ function fmtDate(d) {
   } catch { return d }
 }
 
-
-function hasMatchStarted(c) {
-  if (!c.slot_day || !c.slot_hour) return false
-  try {
-    const d = c.slot_day
-    if (d.length === 10 && d.includes('-')) {
-      const [year, month, day] = d.split('-')
-      const [hour, min] = c.slot_hour.split(':')
-      return new Date() >= new Date(year, month - 1, day, hour, min)
-    }
-    return true
-  } catch { return true }
+// Mensaje limpio de una RPC de Postgres (quita el prefijo "<fn> falló: ")
+function rpcMsg(error) {
+  let m = error?.message || 'Error desconocido'
+  m = m.replace(/^[a-z_]+ falló:\s*/i, '')
+  return m
 }
 
 function courtDot(courtId) {
@@ -34,6 +27,15 @@ function courtDot(courtId) {
   }} title={isHard ? 'Cancha dura' : 'Arcilla'} />
 }
 
+// mm:ss a partir de milisegundos
+function fmtRemaining(ms) {
+  if (ms <= 0) return '0:00'
+  const total = Math.floor(ms / 1000)
+  const m = Math.floor(total / 60)
+  const s = total % 60
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+
 export default function Resultados() {
   const { player, updateSession } = useSession()
   const [challenges, setChallenges] = useState([])
@@ -43,116 +45,122 @@ export default function Resultados() {
   const [slotInfo, setSlotInfo] = useState({}) // cancha/fecha/hora inline al anotar resultado
   const [editScores, setEditScores] = useState({})
   const [editTiebreaks, setEditTiebreaks] = useState({})
-  const [editingId, setEditingId] = useState(null)
+  const [editingId, setEditingId] = useState(null) // id del desafío en modo "Corregir"
   const [loading, setLoading] = useState(true)
   const [notif, setNotif] = useState(null)
   const [activeTab, setActiveTab] = useState('partidos')
   const [rankingHistory, setRankingHistory] = useState([])
   const [selectedWeekIdx, setSelectedWeekIdx] = useState(0)
   const [movDetail, setMovDetail] = useState(null)
+  const [v2cfg, setV2cfg] = useState(null)          // v2_config (ventana de validación)
+  const [nowTs, setNowTs] = useState(() => Date.now())
 
   useEffect(() => { load() }, [])
+
+  // Tick de 1s para el contador de la ventana de validación/corrección
+  useEffect(() => {
+    const t = setInterval(() => setNowTs(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [])
 
   async function load() {
     try {
       const [ch, pl] = await Promise.all([getChallenges(), getPlayers()])
       setChallenges(ch); setPlayers(pl)
-      const { data: hist } = await supabase.from('ranking_history').select('*').order('semana', { ascending: false }).limit(20)
+      const [{ data: hist }, { data: cfg2 }] = await Promise.all([
+        supabase.from('ranking_history').select('*').order('semana', { ascending: false }).limit(20),
+        supabase.from('v2_config').select('*').eq('id', 1).single(),
+      ])
       setRankingHistory(hist || [])
+      setV2cfg(cfg2 || null)
     } finally { setLoading(false) }
   }
 
   function ntf(msg, type = 'ok') { setNotif({ msg, type }); setTimeout(() => setNotif(null), 4000) }
 
-  // Partido listo para anotar: aceptado y es parte del partido
-  // No requiere que haya pasado la hora ni que el pago esté confirmado
-  // Pero saveResult exigirá cancha + fecha + hora + score antes de guardar
-  function canReport(c) {
-    if (c.status !== 'accepted') return false
-    if (!(c.challenger_id === player?.id || c.challenged_id === player?.id)) return false
-    return true
-  }
-
+  // ── Reglas de estado (v2: aplicación instantánea) ──────────────
   function isMyMatch(c) {
     return c.challenger_id === player?.id || c.challenged_id === player?.id
   }
 
-  function canEdit(c) {
-    if (c.status !== 'completed') return false
-    if (!isMyMatch(c)) return false
-    if (c.resultado_validado) return false
-    if (c.ranking_applied) return false // historial bloqueado
-    // Solo el rival (no quien anotó) puede editar
-    return c.anotado_por !== player?.id
+  // Partido listo para anotar: aceptado y soy parte del partido
+  function canReport(c) {
+    if (c.status !== 'accepted') return false
+    return isMyMatch(c)
   }
 
+  // El único movimiento aplicado más reciente de toda la liga (regla 2)
+  const lastAppliedId = challenges
+    .filter(c => c.ranking_applied && c.applied_at)
+    .sort((a, b) => new Date(b.applied_at) - new Date(a.applied_at))[0]?.id || null
+
+  // Milisegundos restantes de la ventana de validación; null si no aplica contador
+  function windowRemaining(c) {
+    const mins = v2cfg?.ventana_validacion_minutos
+    if (!c.resultado_ingresado_at || mins == null) return null
+    const end = new Date(c.resultado_ingresado_at).getTime() + mins * 60000
+    return end - nowTs
+  }
+  function withinWindow(c) {
+    const r = windowRemaining(c)
+    return r === null ? true : r > 0
+  }
+
+  // ¿Este resultado sigue accionable por los 2 jugadores? (aplicado, no validado, último, en ventana)
+  function isActionable(c) {
+    return c.status === 'completed'
+      && c.ranking_applied === true
+      && !c.resultado_validado
+      && c.id === lastAppliedId
+      && isMyMatch(c)
+  }
   function canValidate(c) {
-    if (c.status !== 'completed') return false
-    if (!isMyMatch(c)) return false
-    if (c.resultado_validado) return false
-    if (c.ranking_applied) return false // historial bloqueado
-    if (c.validado_por === player?.id) return false // ya validó
-    return true
+    return isActionable(c) && withinWindow(c)
+  }
+  function canCorregir(c) {
+    return isActionable(c) && withinWindow(c)
   }
 
   async function validateResult(c) {
     try {
-      const alreadyValidated = c.validado_por !== null
-      await import('../lib/supabase').then(m => m.updateChallenge(c.id, {
-        validado_por: player.id,
-        resultado_validado: alreadyValidated ? true : false // definitivo si el otro ya validó
-      }))
-      // Si el anotador valida o el rival valida → definitivo
-      await import('../lib/supabase').then(async m => {
-        const { data } = await supabase.from('challenges').select('validado_por, anotado_por').eq('id', c.id).single()
-        if (data?.validado_por) {
-          await m.updateChallenge(c.id, { resultado_validado: true })
-        }
-      })
-      ntf('Resultado validado.')
+      const { error } = await supabase.rpc('validar_resultado', { p_challenge_id: c.id, p_player_id: player.id })
+      if (error) throw error
+      ntf('Resultado validado. Queda bloqueado.')
       load()
-    } catch (err) { ntf(err.message, 'err') }
+    } catch (err) { ntf(rpcMsg(err), 'err') }
   }
 
-  async function cancelResult(c) {
-    if (!window.confirm('¿Cancelar el resultado? El partido vuelve a "jugando" y podrán ingresar el resultado de nuevo.')) return
-    try {
-      await updateChallenge(c.id, {
-        status: 'accepted',
-        score_a: null, score_b: null,
-        tiebreak_a: null, tiebreak_b: null,
-        ganador: null, is_wo: false,
-        resultado_validado: false,
-        anotado_por: null, validado_por: null,
-        ranking_applied: false,
-      })
-      ntf('Resultado cancelado. El partido volvió a estado activo.')
-      load()
-    } catch (err) { ntf(err.message, 'err') }
-  }
-
-  async function saveEdit(c) {
-    const sa = parseInt(editScores[c.id + "_a"] ?? c.score_a)
-    const sb = parseInt(editScores[c.id + "_b"] ?? c.score_b)
-    if (isNaN(sa) || isNaN(sb) || sa === sb) { ntf("Resultado inválido.", "err"); return }
+  // Corregir: revierte (snapshot_pre) y reaplica con el nuevo marcador
+  async function saveCorreccion(c) {
+    const sa = parseInt(editScores[c.id + '_a'] ?? c.score_a)
+    const sb = parseInt(editScores[c.id + '_b'] ?? c.score_b)
+    if (isNaN(sa) || isNaN(sb) || sa === sb) { ntf('Resultado inválido.', 'err'); return }
+    if (Math.max(sa, sb) !== 9) { ntf('El ganador debe llegar a 9.', 'err'); return }
+    if (Math.min(sa, sb) < 0) { ntf('Marcador inválido.', 'err'); return }
     const isTB = (sa === 9 && sb === 8) || (sa === 8 && sb === 9)
     let tbA = null, tbB = null
     if (isTB) {
-      tbA = parseInt(editTiebreaks[c.id + "_a"] ?? c.tiebreak_a)
-      tbB = parseInt(editTiebreaks[c.id + "_b"] ?? c.tiebreak_b)
-      if (isNaN(tbA) || isNaN(tbB) || Math.abs(tbA - tbB) < 2) { ntf("Tiebreak inválido.", "err"); return }
+      tbA = parseInt(editTiebreaks[c.id + '_a'] ?? c.tiebreak_a)
+      tbB = parseInt(editTiebreaks[c.id + '_b'] ?? c.tiebreak_b)
+      if (isNaN(tbA) || isNaN(tbB) || Math.abs(tbA - tbB) < 2) { ntf('Tiebreak inválido.', 'err'); return }
     }
     try {
-      await updateChallenge(c.id, {
-        score_a: sa, score_b: sb, ganador: sa > sb ? "challenger" : "challenged",
-        tiebreak_a: isTB ? tbA : null, tiebreak_b: isTB ? tbB : null,
-        anotado_por: player.id, // quien editó ahora es el anotador
-        validado_por: null, resultado_validado: false
+      const { error } = await supabase.rpc('corregir_resultado', {
+        p_challenge_id: c.id,
+        p_editor_id: player.id,
+        p_score_a: sa,
+        p_score_b: sb,
+        p_tiebreak_a: isTB ? tbA : null,
+        p_tiebreak_b: isTB ? tbB : null,
       })
+      if (error) throw error
       setEditingId(null)
-      ntf("Resultado editado. El rival puede validarlo o editarlo.")
+      // Refrescar sesión (mi posición pudo cambiar)
+      const { data: fresh } = await supabase.from('players').select('*').eq('id', player.id).single()
+      if (fresh) updateSession(fresh)
+      ntf('Resultado corregido y ranking reajustado.')
       load()
-    } catch (err) { ntf(err.message, "err") }
+    } catch (err) { ntf(rpcMsg(err), 'err') }
   }
 
   async function saveResult(c) {
@@ -185,29 +193,26 @@ export default function Resultados() {
 
     const winner = sa > sb ? 'challenger' : 'challenged'
     const winnerP = winner === 'challenger' ? c.challenger : c.challenged
-    const loserP = winner === 'challenger' ? c.challenged : c.challenger
-    const winnerFull = players.find(p => p.id === winnerP?.id)
-    const loserFull = players.find(p => p.id === loserP?.id)
 
     try {
-      // Guardar resultado — NO mover ranking, espera al jueves
+      // 1) Guardar el resultado
       await updateChallenge(c.id, {
         status: 'completed', score_a: sa, score_b: sb, ganador: winner,
         slot_day: finalSlotDay,
         anotado_por: player.id, validado_por: null, resultado_validado: false,
         ...(isTB ? { tiebreak_a: tbA, tiebreak_b: tbB } : {})
       })
-      // Solo actualizar victorias/derrotas
-      if (winnerFull) await import('../lib/supabase').then(m => m.updatePlayer(winnerFull.id, { victorias: (winnerFull.victorias || 0) + 1 }))
-      if (loserFull) await import('../lib/supabase').then(m => m.updatePlayer(loserFull.id, { derrotas: (loserFull.derrotas || 0) + 1 }))
+      // 2) Aplicar al ranking AL INSTANTE (mueve posiciones + recalcula stats)
+      const { error: applyErr } = await supabase.rpc('aplicar_resultado', { p_challenge_id: c.id })
+      if (applyErr) throw applyErr
 
       await notifyResult(c.challenger, c.challenged, sa, sb, winnerP, null)
-      // Refrescar sesión del jugador actual
+      // Refrescar sesión del jugador actual (posición/stats)
       const { data: freshPlayer } = await supabase.from('players').select('*').eq('id', player.id).single()
       if (freshPlayer) updateSession(freshPlayer)
-      ntf(`Resultado guardado: ${sa}–${sb}${isTB ? ` (${tbA}–${tbB})` : ''}. El ranking se actualiza el jueves.`)
+      ntf(`Resultado guardado: ${sa}–${sb}${isTB ? ` (${tbA}–${tbB})` : ''}. Ranking actualizado. Tienes unos minutos para validar o corregir.`)
       load()
-    } catch (err) { ntf(err.message, 'err') }
+    } catch (err) { ntf(rpcMsg(err), 'err') }
   }
 
   const toReport = challenges.filter(c => canReport(c))
@@ -235,7 +240,7 @@ export default function Resultados() {
       {activeTab === 'ranking' && (
         <div>
           {rankingHistory.length === 0
-            ? <p style={{ fontSize: 13, color: '#888', textAlign: 'center', padding: 24 }}>Sin historial aún. Se genera cada jueves al publicar el ranking.</p>
+            ? <p style={{ fontSize: 13, color: '#888', textAlign: 'center', padding: 24 }}>Sin historial aún. Se genera automáticamente cada jueves (foto del ranking).</p>
             : (() => {
               const week = rankingHistory[selectedWeekIdx]
               const prevWeek = rankingHistory[selectedWeekIdx + 1]
@@ -412,8 +417,9 @@ export default function Resultados() {
         {completed.length === 0
           ? <p style={{ fontSize: 13, color: '#888', textAlign: 'center', padding: '12px 0' }}>Sin partidos jugados aún</p>
           : (() => {
-            const active = completed.filter(c => c.ranking_applied === false)
-            const historic = completed.filter(c => c.ranking_applied === true || c.ranking_applied === null)
+            // "Por validar": aplicados y aún sin validar (arriba); resto = historial
+            const porValidar = completed.filter(c => c.ranking_applied === true && !c.resultado_validado)
+            const historic = completed.filter(c => !(c.ranking_applied === true && !c.resultado_validado))
             const renderRow = (c) => {
               const w = c.ganador === 'challenger' ? c.challenger : c.challenged
               const hasTB = c.tiebreak_a != null && c.tiebreak_b != null
@@ -421,6 +427,8 @@ export default function Resultados() {
               const esa = editScores[c.id + '_a'] ?? c.score_a
               const esb = editScores[c.id + '_b'] ?? c.score_b
               const editIsTB = (parseInt(esa) === 9 && parseInt(esb) === 8) || (parseInt(esa) === 8 && parseInt(esb) === 9)
+              const actionable = isActionable(c)
+              const remaining = windowRemaining(c)
               return (
                 <div key={c.id}>
                   <div className="row-item">
@@ -431,32 +439,44 @@ export default function Resultados() {
                       </span>
                       <span style={{ fontWeight: c.ganador === 'challenged' ? 500 : 400 }}>{c.challenged?.nombre} {c.challenged?.apellido?.[0]}.</span>
                     </span>
-                    {c.resultado_validado && <span className="badge badge-green" style={{ fontSize: 10, flexShrink: 0 }}>✓</span>}
+                    {c.resultado_validado && <span className="badge badge-green" style={{ fontSize: 10, flexShrink: 0 }} title="Validado">✓</span>}
                     <span className="badge badge-green" style={{ flexShrink: 0 }}>{w?.nombre}</span>
                     {c.slot_court && <span style={{ marginLeft: 4 }}>{courtDot(c.slot_court)}</span>}
                     <span style={{ fontSize: 11, color: '#888', marginLeft: 4, flexShrink: 0 }}>{fmtDate(c.slot_day) || fmtDate(c.created_at)}</span>
-                    {canValidate(c) && !isEditing && (
-                      <button className="btn btn-accept" style={{ fontSize: 11, padding: '2px 8px', marginLeft: 4 }}
-                        onClick={() => validateResult(c)}>
-                        Validar
-                      </button>
-                    )}
-                    {canEdit(c) && !isEditing && (
-                      <button className="btn" style={{ fontSize: 11, padding: '2px 8px', marginLeft: 2 }}
-                        onClick={() => { setEditingId(c.id); setEditScores({ [c.id + '_a']: c.score_a, [c.id + '_b']: c.score_b }); setEditTiebreaks({ [c.id + '_a']: c.tiebreak_a || '', [c.id + '_b']: c.tiebreak_b || '' }) }}>
-                        Editar
-                      </button>
-                    )}
-                    {canEdit(c) && !isEditing && (
-                      <button className="btn btn-reject" style={{ fontSize: 11, padding: '2px 8px', marginLeft: 2 }}
-                        onClick={() => cancelResult(c)}>
-                        Cancelar
-                      </button>
-                    )}
                   </div>
+
+                  {/* Panel accionable: resultado aplicado, no validado, último y soy jugador */}
+                  {actionable && !isEditing && (
+                    <div style={{ background: '#E1F5EE', borderRadius: 8, padding: '10px 12px', margin: '2px 0 8px' }}>
+                      {canValidate(c) ? (
+                        <>
+                          <div style={{ fontSize: 12, color: '#0F6E56', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <i className="ti ti-clock" aria-hidden="true" />
+                            {remaining != null
+                              ? <>Ventana para validar o corregir: <strong>{fmtRemaining(remaining)}</strong></>
+                              : <>Puedes validar o corregir este resultado</>}
+                          </div>
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            <button className="btn btn-accept" style={{ fontSize: 12, padding: '4px 12px' }} onClick={() => validateResult(c)}>Validar ✓</button>
+                            <button className="btn" style={{ fontSize: 12, padding: '4px 12px' }}
+                              onClick={() => { setEditingId(c.id); setEditScores({ [c.id + '_a']: c.score_a, [c.id + '_b']: c.score_b }); setEditTiebreaks({ [c.id + '_a']: c.tiebreak_a || '', [c.id + '_b']: c.tiebreak_b || '' }) }}>
+                              Corregir
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <div style={{ fontSize: 12, color: '#8a6d1a', display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <i className="ti ti-lock" aria-hidden="true" />
+                          Ventana de corrección vencida. Si hay un error, contacta a un administrador.
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Form de corrección */}
                   {isEditing && (
                     <div style={{ background: '#f5f4f0', borderRadius: 8, padding: '10px 12px', marginBottom: 8 }}>
-                      <div style={{ fontSize: 12, color: '#888', marginBottom: 8 }}>Corregir resultado</div>
+                      <div style={{ fontSize: 12, color: '#888', marginBottom: 8 }}>Corregir resultado (revierte y reaplica el ranking)</div>
                       <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
                         <div style={{ flex: 1 }}><label style={{ fontSize: 11, color: '#888', display: 'block', marginBottom: 3 }}>{c.challenger?.nombre}</label><input type="number" min="0" max="9" value={esa} onChange={e => setEditScores(s => ({ ...s, [c.id + '_a']: e.target.value }))} /></div>
                         <span style={{ fontSize: 16, color: '#888', paddingBottom: 8 }}>–</span>
@@ -474,7 +494,7 @@ export default function Resultados() {
                       )}
                       <div style={{ display: 'flex', gap: 8, marginTop: 8, justifyContent: 'flex-end' }}>
                         <button className="btn" style={{ fontSize: 12 }} onClick={() => setEditingId(null)}>Cancelar</button>
-                        <button className="btn btn-accept" style={{ fontSize: 12 }} onClick={() => saveEdit(c)}>Guardar</button>
+                        <button className="btn btn-accept" style={{ fontSize: 12 }} onClick={() => saveCorreccion(c)}>Guardar corrección</button>
                       </div>
                     </div>
                   )}
@@ -483,8 +503,8 @@ export default function Resultados() {
             }
             return (
               <>
-                {active.map(renderRow)}
-                {active.length > 0 && historic.length > 0 && (
+                {porValidar.map(renderRow)}
+                {porValidar.length > 0 && historic.length > 0 && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '10px 0', color: '#aaa' }}>
                     <div style={{ flex: 1, height: '0.5px', background: '#e0dfd8' }} />
                     <span style={{ fontSize: 11, whiteSpace: 'nowrap' }}>Historial anterior</span>

@@ -275,6 +275,11 @@ export default function Admin() {
   }
 
   async function publishRanking(plan) {
+    // v2: publicación manual deshabilitada — el ranking se aplica al instante y la
+    // foto semanal la hace el cron foto_jueves. Guarda para no re-mover el ranking.
+    ntf('v2: el ranking se actualiza automáticamente. La publicación manual está deshabilitada.', 'warn')
+    return
+    // eslint-disable-next-line no-unreachable
     if (!sessionPlayer?.es_admin) {
       ntf('Solo un administrador puede publicar el ranking.', 'err')
       return
@@ -323,6 +328,10 @@ export default function Admin() {
   }
 
   async function undoRanking() {
+    // v2: deshabilitado junto con la publicación manual (ver publishRanking).
+    ntf('v2: la publicación manual y su reverso están deshabilitados.', 'warn')
+    return
+    // eslint-disable-next-line no-unreachable
     if (!snapshots[0]) { ntf('No hay snapshot para deshacer.', 'warn'); return }
     if (!confirm('¿Revertir el último ranking publicado? Se restaurarán las posiciones y los partidos volverán a estar pendientes.')) return
     const snap = snapshots[0]
@@ -713,36 +722,12 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
 
             {/* ── Ranking ── */}
             <div style={{ fontSize: 12, fontWeight: 500, color: '#6b6b6b', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 10 }}>Ranking</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <button
-                disabled={!esJueves}
-                style={{
-                  gridColumn: '1 / -1',
-                  background: esJueves ? '#E1F5EE' : '#f7f6f2',
-                  border: esJueves ? '1px solid #9FE1CB' : '1px solid #e0dfd8',
-                  color: esJueves ? '#0F6E56' : '#b0afa8',
-                  borderRadius: 10, padding: '14px 8px', fontSize: 14, fontWeight: 500,
-                  cursor: esJueves ? 'pointer' : 'not-allowed',
-                  fontFamily: 'inherit'
-                }}
-                onClick={async () => {
-                  const plan = await computePublishPlan()          // 1ª pasada SIN congelados
-                  setFrozenIds([])                                 // reset selección
-                  setFreezeStep({ candidatos: plan.candidatosCongelar })
-                }}>
-                <i className="ti ti-trophy" style={{ verticalAlign: -2, marginRight: 6 }} aria-hidden="true" />Publicar ranking
-              </button>
-              {!esJueves && (
-                <div style={{ gridColumn: '1 / -1', fontSize: 11, color: '#b0afa8', marginTop: -4 }}>
-                  El ranking solo se puede publicar los jueves.
-                </div>
-              )}
-              {snapshots.length > 0 && (
-                <button style={{ gridColumn: '1 / -1', background: '#f7f6f2', border: '1px solid #e0dfd8', color: '#b0afa8', borderRadius: 10, padding: '14px 8px', fontSize: 14, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}
-                  onClick={undoRanking}>
-                  <i className="ti ti-arrow-back" style={{ verticalAlign: -2, marginRight: 6 }} aria-hidden="true" />Deshacer ranking
-                </button>
-              )}
+            {/* v2: el ranking se actualiza al instante con cada resultado (aplicar_resultado)
+                y la foto semanal la hará el cron foto_jueves. La publicación manual del jueves
+                queda deshabilitada en esta rama para no re-mover el ranking y corromperlo. */}
+            <div style={{ background: '#f5f4f0', border: '1px solid #e0dfd8', borderRadius: 10, padding: '12px 14px', fontSize: 12, color: '#6b6b6b', display: 'flex', gap: 8 }}>
+              <i className="ti ti-info-circle" style={{ flexShrink: 0, marginTop: 1 }} aria-hidden="true" />
+              <span>El ranking se actualiza automáticamente con cada resultado. La foto semanal se genera sola cada jueves. La publicación manual quedó deshabilitada en esta versión.</span>
             </div>
 
             <div style={{ borderTop: '1.5px solid #ecece4', margin: '18px 0' }} />
