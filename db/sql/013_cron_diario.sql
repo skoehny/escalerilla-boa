@@ -8,6 +8,8 @@
 --     desafío pending/accepted y SIN resultado ese día. Un resultado lo deja
 --     en 0 (aplicar_resultado). Dato inicial: dias_inactivo = semanas_inactivo*7.
 --     semanas_inactivo se mantiene sincronizado = floor(dias_inactivo/7) (UI badge).
+--     DEBUTANTES (victorias=0 y derrotas=0) NO tienen reloj: se excluyen del
+--     incremento (y por tanto de penalización y lesionado) hasta su 1er resultado.
 --  3. PENALIZACIONES: al CRUZAR HOY el umbral exacto de días efectivos:
 --       14 => -2 puestos ; 21 => -1 ; 28 => -1 + lesionado ; cada 7 más (35,42..) => -1.
 --     "Cruzar" = el incremento de hoy dejó el contador justo en ese valor
@@ -46,6 +48,11 @@ ALTER TABLE v2_config ADD COLUMN IF NOT EXISTS last_cron_daily_date  date;
 UPDATE players
    SET dias_inactivo = semanas_inactivo * 7
  WHERE dias_inactivo = 0 AND semanas_inactivo > 0;
+
+-- Debutantes (v=0 y d=0) NO tienen reloj: dias_inactivo=0 aunque semanas*7 dijera otra cosa.
+UPDATE players
+   SET dias_inactivo = 0
+ WHERE COALESCE(victorias,0) = 0 AND COALESCE(derrotas,0) = 0 AND dias_inactivo <> 0;
 
 -- ── aplicar_resultado: además de semanas/ultima_fecha, resetea dias_inactivo ──
 CREATE OR REPLACE FUNCTION public.aplicar_resultado(p_challenge_id uuid)
@@ -291,16 +298,16 @@ BEGIN
     UNION
     SELECT challenged_id       FROM challenges WHERE status IN ('pending','accepted') AND challenged_id IS NOT NULL;
 
-  -- 3) INCREMENTO: +1 a activos sin pausa y sin resultado hoy.
-  --    (Nota: por spec 'cada activo' incluye debutantes; el freno los protege
-  --     solo como piso, no de su propio conteo.)
+  -- 3) INCREMENTO: +1 a activos sin pausa, sin resultado hoy y que NO sean
+  --    debutantes (v=0 y d=0): el debutante no tiene reloj hasta su 1er resultado.
   DROP TABLE IF EXISTS _incr;
   CREATE TEMP TABLE _incr ON COMMIT DROP AS
     SELECT p.id
       FROM players p
      WHERE p.activo
        AND p.id NOT IN (SELECT pid FROM _paused)
-       AND (p.ultima_fecha_jugada IS NULL OR p.ultima_fecha_jugada::date < v_today);
+       AND (p.ultima_fecha_jugada IS NULL OR p.ultima_fecha_jugada::date < v_today)
+       AND NOT (COALESCE(p.victorias,0) = 0 AND COALESCE(p.derrotas,0) = 0);
 
   UPDATE players SET dias_inactivo = dias_inactivo + 1
    WHERE id IN (SELECT id FROM _incr);
