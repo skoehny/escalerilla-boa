@@ -190,6 +190,19 @@ export default function Admin() {
     load()
   }
 
+  async function savePerdonar() {
+    const p = editPlayerModal
+    const motivo = (p._perdonMotivo || '').trim()
+    if (!motivo) { ntf('Indica el motivo para perdonar la inactividad.', 'err'); return }
+    try {
+      const { error } = await supabase.rpc('admin_perdonar_inactividad', { p_player: p.id, p_motivo: motivo })
+      if (error) throw error
+      setEditPlayerModal(null)
+      ntf('Inactividad perdonada: reloj en cero.')
+      load()
+    } catch (err) { ntf(err.message || 'No se pudo perdonar.', 'err') }
+  }
+
   // ── Desafíos ─────────────────────────────────────────────
   async function validatePayment(c) {
     await updateChallenge(c.id, { pago_confirmado: true })
@@ -1121,6 +1134,14 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
                 )}
               </div>
             </div>
+            {editPlayerModal.activo && editPlayerModal.dias_inactivo > 0 && (
+              <div className="form-row" style={{ background: '#FAEEDA', borderRadius: 8, padding: '8px 10px' }}>
+                <label style={{ color: '#633806' }}>Inactividad: {editPlayerModal.dias_inactivo} días ({editPlayerModal.semanas_inactivo} sem.)</label>
+                <input type="text" placeholder="Motivo para perdonar (obligatorio)"
+                  value={editPlayerModal._perdonMotivo || ''} onChange={e => setEditPlayerModal(m => ({ ...m, _perdonMotivo: e.target.value }))} />
+                <button className="btn" style={{ marginTop: 6, fontSize: 12 }} onClick={savePerdonar}>Perdonar inactividad</button>
+              </div>
+            )}
             <div className="form-row" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <input type="checkbox" id="admin-check" checked={editPlayerModal.es_admin || false} onChange={e => setEditPlayerModal(m => ({ ...m, es_admin: e.target.checked }))} style={{ width: 16, height: 16 }} />
               <label htmlFor="admin-check" style={{ fontSize: 13, color: '#333', marginBottom: 0 }}>Es administrador</label>

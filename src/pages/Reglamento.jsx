@@ -3,13 +3,39 @@ import { supabase } from '../lib/supabase'
 import PelotaTenis from '../components/PelotaTenis'
 import { FORMATOS } from '../lib/formato'
 
+function horasTexto(min) {
+  if (min == null) return ''
+  return min % 60 === 0 ? `${min / 60} h` : `${min} min`
+}
+
 export default function Reglamento() {
-  const [clubName, setClubName] = useState('Club BOA')
-  const [formato, setFormato] = useState('set9')
+  const [cfg, setCfg] = useState(null)
+  const clubName = cfg?.nombre_club || 'Club BOA'
+  const formato = cfg?.formato_partido || 'set9'
   useEffect(() => {
-    supabase.from('v2_config').select('nombre_club, formato_partido').eq('id', 1).single()
-      .then(({ data }) => { if (data?.nombre_club) setClubName(data.nombre_club); if (data?.formato_partido) setFormato(data.formato_partido) })
+    supabase.from('v2_config').select('*').eq('id', 1).single()
+      .then(({ data }) => { if (data) setCfg(data) })
   }, [])
+
+  const rango = cfg?.max_puestos_desafio ?? 4
+  const diasExp = cfg?.dias_expiracion_desafio ?? 7
+  const ventana = horasTexto(cfg?.ventana_validacion_minutos ?? 1440)
+  const horasWo = cfg?.horas_wo_cancelacion ?? 24
+
+  const faqs = [
+    { q: '¿A quién puedo desafiar?', a: `Hasta ${rango} puestos por encima tuyo, siempre que el rival no esté lesionado y ninguno de los dos tenga ya un desafío activo. Con la Wild Card puedes desafiar a cualquiera por encima, sin límite de rango.` },
+    { q: '¿Qué pasa si no juego? (inactividad)', a: 'El reloj cuenta los días sin jugar desde tu último partido. A los 14 días bajas 2 puestos; a los 21, 1 más; a los 28, 1 más y quedas lesionado; y 1 más por cada 7 días extra. Tener un desafío activo (pendiente o aceptado) pausa el reloj.' },
+    { q: '¿Qué es la Wild Card?', a: 'Cada jugador tiene 1 Wild Card al año (se resetea el 1 de enero) para desafiar a cualquier posición por encima sin límite de rango.' },
+    { q: '¿Qué pasa si me cancelan tarde?', a: `Si tu rival cancela un desafío con cancha reservada a menos de ${horasWo} horas del partido, puedes marcarle un WO a tu favor.` },
+    { q: '¿Cómo corrijo un resultado mal anotado?', a: `Apenas se registra un resultado el ranking se mueve al instante. Durante los siguientes ${ventana} cualquiera de los dos jugadores puede corregir el marcador (revierte y reaplica). Pasada esa ventana, o si ya fue validado, solo un administrador.` },
+    { q: '¿Quién valida un resultado?', a: 'Lo valida el rival (no quien lo anotó). Validar lo deja definitivo. Si no estás de acuerdo, en vez de validar usa Corregir dentro de la ventana.' },
+    { q: '¿Qué pasa si me lesiono?', a: 'Un jugador lesionado no puede ser desafiado. La lesión puede marcarla el propio jugador desde su perfil, o se activa automáticamente a los 28 días de inactividad. Mientras estés inactivo, el reloj sigue corriendo.' },
+    { q: '¿Cómo vuelvo de una lesión?', a: 'Crear un desafío te reactiva automáticamente (te saca el estado de lesionado). También puedes darte de alta desde tu perfil.' },
+    { q: '¿Cuándo se actualiza el ranking?', a: 'Al instante, apenas se registra cada resultado. Cada jueves además se genera una foto semanal del ranking con las flechas de la semana y un resumen compartible.' },
+    { q: '¿Cuándo expira un desafío?', a: `A los ${diasExp} días de creado si no se juega. Al expirar, ambos quedan libres para nuevos desafíos.` },
+    { q: '¿Qué formato de partido se juega?', a: `${FORMATOS[formato]?.label}. ${FORMATOS[formato]?.regla} El administrador puede cambiar el formato; aplica a los partidos nuevos.` },
+  ]
+
   return (
     <div>
       <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 14 }}>
@@ -78,6 +104,19 @@ export default function Reglamento() {
         <p style={{ marginTop: 8 }}><strong>Si jugaron sin que el rival aceptara por la app:</strong> el desafiante puede usar la opción "Jugamos" para registrar el resultado directamente, completando todos los datos.</p>
         <p style={{ marginTop: 8 }}><strong>Validar y corregir (ventana de 24 horas):</strong> apenas se registra un resultado el ranking se mueve al instante. Durante las <strong>24 horas</strong> siguientes, cualquiera de los dos jugadores puede <strong>Validar</strong> el resultado (lo deja definitivo) o <strong>Corregir</strong> el marcador (revierte y reaplica el ranking automáticamente). Pasada esa ventana, o si ya fue validado, solo el administrador puede corregir.</p>
       </Rule>
+
+      <div className="card" style={{ marginBottom: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+          <i className="ti ti-help-circle" style={{ color: '#1D9E75', fontSize: 18 }} aria-hidden="true" />
+          <span style={{ fontSize: 14, fontWeight: 500 }}>Preguntas frecuentes</span>
+        </div>
+        {faqs.map((f, i) => (
+          <details key={i} style={{ borderTop: '0.5px solid #eee', padding: '8px 0' }}>
+            <summary style={{ fontSize: 13, fontWeight: 500, cursor: 'pointer', color: '#0F6E56', listStyle: 'none' }}>{f.q}</summary>
+            <div style={{ fontSize: 13, color: '#555', marginTop: 6, lineHeight: 1.6 }}>{f.a}</div>
+          </details>
+        ))}
+      </div>
 
       <div style={{ background: '#E1F5EE', border: '0.5px solid #5DCAA5', borderRadius: 8, padding: '10px 12px', marginTop: 10, fontSize: 12, color: '#085041' }}>
         <i className="ti ti-info-circle" style={{ verticalAlign: -2, marginRight: 5 }} aria-hidden="true" />
