@@ -128,10 +128,14 @@ export default function Desafios() {
         ranking_applied: false,
         resultado_validado: false,
       })
+      // Aplicar al ranking AL INSTANTE (igual que Resultados.jsx y marcar_wo);
+      // el cron aplicar_pendientes queda solo como red de seguridad.
+      const { error } = await supabase.rpc('aplicar_resultado', { p_challenge_id: playedModal.id })
+      if (error) throw error
       setPlayedModal(null)
       setPlayedData({ court: '', day: '', hour: '18:00', sa: '', sb: '', tba: '', tbb: '' })
       setPlayedError('')
-      ntf('Resultado guardado. El rival puede revisarlo en Resultados.')
+      ntf('Resultado guardado. Ranking actualizado. El rival puede validarlo o corregirlo en Resultados.')
       load()
     } catch (err) { setPlayedError(err.message) }
   }
