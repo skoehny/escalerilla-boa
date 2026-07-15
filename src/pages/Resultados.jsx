@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import { getChallenges, updateChallenge, getPlayers, supabase } from '../lib/supabase'
 import { notifyResult } from '../lib/notify'
 import { useSession } from '../components/SessionContext'
+import SetsInput, { emptySets, setsFromChallenge } from '../components/SetsInput'
+import { validarMarcador, setsPayload, marcadorTexto, FORMATOS } from '../lib/formato'
 
 function fmtDate(d) {
   if (!d) return ''
@@ -41,11 +43,9 @@ export default function Resultados() {
   const { player, updateSession } = useSession()
   const [challenges, setChallenges] = useState([])
   const [players, setPlayers] = useState([])
-  const [scores, setScores] = useState({})
-  const [tiebreaks, setTiebreaks] = useState({})
+  const [setsMap, setSetsMap] = useState({})   // por challenge: array de {a,b} (strings)
+  const [editSets, setEditSets] = useState([]) // corrección en curso
   const [slotInfo, setSlotInfo] = useState({}) // cancha/fecha/hora inline al anotar resultado
-  const [editScores, setEditScores] = useState({})
-  const [editTiebreaks, setEditTiebreaks] = useState({})
   const [editingId, setEditingId] = useState(null) // id del desafío en modo "Corregir"
   const [loading, setLoading] = useState(true)
   const [notif, setNotif] = useState(null)
@@ -154,26 +154,16 @@ export default function Resultados() {
 
   // Corregir: revierte (snapshot_pre) y reaplica con el nuevo marcador
   async function saveCorreccion(c) {
-    const sa = parseInt(editScores[c.id + '_a'] ?? c.score_a)
-    const sb = parseInt(editScores[c.id + '_b'] ?? c.score_b)
-    if (isNaN(sa) || isNaN(sb) || sa === sb) { ntf('Resultado inválido.', 'err'); return }
-    if (Math.max(sa, sb) !== 9) { ntf('El ganador debe llegar a 9.', 'err'); return }
-    if (Math.min(sa, sb) < 0) { ntf('Marcador inválido.', 'err'); return }
-    const isTB = (sa === 9 && sb === 8) || (sa === 8 && sb === 9)
-    let tbA = null, tbB = null
-    if (isTB) {
-      tbA = parseInt(editTiebreaks[c.id + '_a'] ?? c.tiebreak_a)
-      tbB = parseInt(editTiebreaks[c.id + '_b'] ?? c.tiebreak_b)
-      if (isNaN(tbA) || isNaN(tbB) || Math.abs(tbA - tbB) < 2) { ntf('Tiebreak inválido.', 'err'); return }
-    }
+    const formato = v2cfg?.formato_partido || 'set9'
+    const v = await validarMarcador(formato, editSets)
+    if (!v.ok) { ntf(v.error || 'Marcador inválido.', 'err'); return }
     try {
       const { error } = await supabase.rpc('corregir_resultado', {
         p_challenge_id: c.id,
         p_editor_id: player.id,
-        p_score_a: sa,
-        p_score_b: sb,
-        p_tiebreak_a: isTB ? tbA : null,
-        p_tiebreak_b: isTB ? tbB : null,
+        p_score_a: v.score_a,
+        p_score_b: v.score_b,
+        p_sets: setsPayload(formato, editSets),
       })
       if (error) throw error
       setEditingId(null)
@@ -186,11 +176,10 @@ export default function Resultados() {
   }
 
   async function saveResult(c) {
-    const sa = parseInt(scores[c.id + '_a'] || '')
-    const sb = parseInt(scores[c.id + '_b'] || '')
-    if (isNaN(sa) || isNaN(sb)) { ntf('Ingresa los games de ambos.', 'err'); return }
-    if (sa < 0 || sb < 0 || sa > 9 || sb > 9) { ntf('Games entre 0 y 9.', 'err'); return }
-    if (sa === sb) { ntf('No puede terminar empatado.', 'err'); return }
+    const formato = v2cfg?.formato_partido || 'set9'
+    const sets = setsMap[c.id] || emptySets()
+    const v = await validarMarcador(formato, sets)
+    if (!v.ok) { ntf(v.error || 'Marcador inválido.', 'err'); return }
     // Fecha del partido: ingresada por el usuario, o hoy en hora local (no UTC)
     const finalSlotDay = slotInfo[c.id]?.day || c.slot_day || new Date().toLocaleDateString('en-CA')
 
@@ -203,36 +192,26 @@ export default function Resultados() {
       })
     }
 
-    // Tiebreak si 9-8 o 8-9
-    const isTB = (sa === 9 && sb === 8) || (sa === 8 && sb === 9)
-    let tbA = null, tbB = null
-    if (isTB) {
-      tbA = parseInt(tiebreaks[c.id + '_a'] || '')
-      tbB = parseInt(tiebreaks[c.id + '_b'] || '')
-      if (isNaN(tbA) || isNaN(tbB)) { ntf('Ingresa el resultado del tiebreak.', 'err'); return }
-      if (Math.abs(tbA - tbB) < 2) { ntf('Tiebreak: diferencia mínima de 2.', 'err'); return }
-    }
-
-    const winner = sa > sb ? 'challenger' : 'challenged'
+    const winner = v.ganador === 'a' ? 'challenger' : 'challenged'
     const winnerP = winner === 'challenger' ? c.challenger : c.challenged
 
     try {
       // 1) Guardar el resultado
       await updateChallenge(c.id, {
-        status: 'completed', score_a: sa, score_b: sb, ganador: winner,
-        slot_day: finalSlotDay,
+        status: 'completed', score_a: v.score_a, score_b: v.score_b, ganador: winner,
+        sets: setsPayload(formato, sets), slot_day: finalSlotDay,
         anotado_por: player.id, validado_por: null, resultado_validado: false,
-        ...(isTB ? { tiebreak_a: tbA, tiebreak_b: tbB } : {})
+        tiebreak_a: null, tiebreak_b: null,
       })
       // 2) Aplicar al ranking AL INSTANTE (mueve posiciones + recalcula stats)
       const { error: applyErr } = await supabase.rpc('aplicar_resultado', { p_challenge_id: c.id })
       if (applyErr) throw applyErr
 
-      await notifyResult(c.challenger, c.challenged, sa, sb, winnerP, null)
+      await notifyResult(c.challenger, c.challenged, v.score_a, v.score_b, winnerP, null)
       // Refrescar sesión del jugador actual (posición/stats)
       const { data: freshPlayer } = await supabase.from('players').select('*').eq('id', player.id).single()
       if (freshPlayer) updateSession(freshPlayer)
-      ntf(`Resultado guardado: ${sa}–${sb}${isTB ? ` (${tbA}–${tbB})` : ''}. Ranking actualizado. Tienes unos minutos para validar o corregir.`)
+      ntf('Resultado guardado. Ranking actualizado. Tienes un rato para validar o corregir.')
       load()
     } catch (err) { ntf(rpcMsg(err), 'err') }
   }
@@ -329,9 +308,8 @@ export default function Resultados() {
         <div style={{ marginBottom: 14 }}>
           <div className="section-title">Anotar resultado</div>
           {toReport.map(c => {
-            const sa = scores[c.id + '_a'] || ''
-            const sb = scores[c.id + '_b'] || ''
-            const isTB = (parseInt(sa) === 9 && parseInt(sb) === 8) || (parseInt(sa) === 8 && parseInt(sb) === 9)
+            const formato = v2cfg?.formato_partido || 'set9'
+            const sets = setsMap[c.id] || emptySets()
             return (
               <div key={c.id} className="card">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
@@ -383,38 +361,13 @@ export default function Resultados() {
                     </div>
                   </div>
                 )}
-                <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-                  <div style={{ flex: 1 }}>
-                    <label style={{ fontSize: 11, color: '#888', display: 'block', marginBottom: 3 }}>{c.challenger?.nombre}</label>
-                    <input type="number" min="0" max="9" placeholder="0-9" value={sa} onChange={e => setScores(s => ({ ...s, [c.id + '_a']: e.target.value }))} />
-                  </div>
-                  <span style={{ fontSize: 16, color: '#888', paddingBottom: 8 }}>–</span>
-                  <div style={{ flex: 1 }}>
-                    <label style={{ fontSize: 11, color: '#888', display: 'block', marginBottom: 3 }}>{c.challenged?.nombre}</label>
-                    <input type="number" min="0" max="9" placeholder="0-9" value={sb} onChange={e => setScores(s => ({ ...s, [c.id + '_b']: e.target.value }))} />
-                  </div>
-                  <button className="btn btn-accept" style={{ marginBottom: 1 }} onClick={() => saveResult(c)}>Guardar</button>
+                <SetsInput formato={formato} sets={sets}
+                  setSets={(next) => setSetsMap(m => ({ ...m, [c.id]: next }))}
+                  nameA={c.challenger?.nombre} nameB={c.challenged?.nombre} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
+                  <span style={{ fontSize: 11, color: '#888' }}>{FORMATOS[formato]?.label}</span>
+                  <button className="btn btn-accept" onClick={() => saveResult(c)}>Guardar</button>
                 </div>
-
-                {isTB && (
-                  <div style={{ marginTop: 10, padding: '8px 10px', background: '#FAEEDA', borderRadius: 8 }}>
-                    <div style={{ fontSize: 12, fontWeight: 500, color: '#633806', marginBottom: 8 }}>
-                      <i className="ti ti-trophy" style={{ verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />
-                      Resultado 9-8 — ingresa el tiebreak
-                    </div>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <div style={{ flex: 1 }}>
-                        <label style={{ fontSize: 11, color: '#888', display: 'block', marginBottom: 3 }}>{c.challenger?.nombre}</label>
-                        <input type="number" min="0" placeholder="TB" value={tiebreaks[c.id + '_a'] || ''} onChange={e => setTiebreaks(t => ({ ...t, [c.id + '_a']: e.target.value }))} />
-                      </div>
-                      <span style={{ fontSize: 16, color: '#888', paddingBottom: 8 }}>–</span>
-                      <div style={{ flex: 1 }}>
-                        <label style={{ fontSize: 11, color: '#888', display: 'block', marginBottom: 3 }}>{c.challenged?.nombre}</label>
-                        <input type="number" min="0" placeholder="TB" value={tiebreaks[c.id + '_b'] || ''} onChange={e => setTiebreaks(t => ({ ...t, [c.id + '_b']: e.target.value }))} />
-                      </div>
-                    </div>
-                  </div>
-                )}
               </div>
             )
           })}
@@ -449,11 +402,7 @@ export default function Resultados() {
             const historic = completed.filter(c => !(c.ranking_applied === true && !c.resultado_validado))
             const renderRow = (c) => {
               const w = c.ganador === 'challenger' ? c.challenger : c.challenged
-              const hasTB = c.tiebreak_a != null && c.tiebreak_b != null
               const isEditing = editingId === c.id
-              const esa = editScores[c.id + '_a'] ?? c.score_a
-              const esb = editScores[c.id + '_b'] ?? c.score_b
-              const editIsTB = (parseInt(esa) === 9 && parseInt(esb) === 8) || (parseInt(esa) === 8 && parseInt(esb) === 9)
               const actionable = isActionable(c)
               const remaining = windowRemaining(c)
               return (
@@ -462,7 +411,7 @@ export default function Resultados() {
                     <span style={{ flex: 1, fontSize: 13 }}>
                       <span style={{ fontWeight: c.ganador === 'challenger' ? 500 : 400 }}>{c.challenger?.nombre} {c.challenger?.apellido?.[0]}.</span>
                       <span style={{ color: '#888', fontSize: 12, margin: '0 5px' }}>
-                        {c.score_a}–{c.score_b}{hasTB ? ` (${c.tiebreak_a}–${c.tiebreak_b})` : ''}{c.is_wo ? ' (WO)' : ''}
+                        {marcadorTexto(c)}{c.is_wo ? ' (WO)' : ''}
                       </span>
                       <span style={{ fontWeight: c.ganador === 'challenged' ? 500 : 400 }}>{c.challenged?.nombre} {c.challenged?.apellido?.[0]}.</span>
                     </span>
@@ -488,7 +437,7 @@ export default function Resultados() {
                               <button className="btn btn-accept" style={{ fontSize: 12, padding: '4px 12px' }} onClick={() => validateResult(c)}>Validar ✓</button>
                             )}
                             <button className="btn" style={{ fontSize: 12, padding: '4px 12px' }}
-                              onClick={() => { setEditingId(c.id); setEditScores({ [c.id + '_a']: c.score_a, [c.id + '_b']: c.score_b }); setEditTiebreaks({ [c.id + '_a']: c.tiebreak_a || '', [c.id + '_b']: c.tiebreak_b || '' }) }}>
+                              onClick={() => { setEditingId(c.id); setEditSets(setsFromChallenge(c)) }}>
                               Corregir
                             </button>
                           </div>
@@ -510,22 +459,9 @@ export default function Resultados() {
                   {/* Form de corrección */}
                   {isEditing && (
                     <div style={{ background: '#f5f4f0', borderRadius: 8, padding: '10px 12px', marginBottom: 8 }}>
-                      <div style={{ fontSize: 12, color: '#888', marginBottom: 8 }}>Corregir resultado (revierte y reaplica el ranking)</div>
-                      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-                        <div style={{ flex: 1 }}><label style={{ fontSize: 11, color: '#888', display: 'block', marginBottom: 3 }}>{c.challenger?.nombre}</label><input type="number" min="0" max="9" value={esa} onChange={e => setEditScores(s => ({ ...s, [c.id + '_a']: e.target.value }))} /></div>
-                        <span style={{ fontSize: 16, color: '#888', paddingBottom: 8 }}>–</span>
-                        <div style={{ flex: 1 }}><label style={{ fontSize: 11, color: '#888', display: 'block', marginBottom: 3 }}>{c.challenged?.nombre}</label><input type="number" min="0" max="9" value={esb} onChange={e => setEditScores(s => ({ ...s, [c.id + '_b']: e.target.value }))} /></div>
-                      </div>
-                      {editIsTB && (
-                        <div style={{ marginTop: 8, padding: '8px 10px', background: '#FAEEDA', borderRadius: 8 }}>
-                          <div style={{ fontSize: 12, fontWeight: 500, color: '#633806', marginBottom: 6 }}>Tiebreak 9-8</div>
-                          <div style={{ display: 'flex', gap: 8 }}>
-                            <div style={{ flex: 1 }}><label style={{ fontSize: 11, color: '#888', display: 'block', marginBottom: 3 }}>{c.challenger?.nombre}</label><input type="number" min="0" value={editTiebreaks[c.id + '_a'] || ''} onChange={e => setEditTiebreaks(t => ({ ...t, [c.id + '_a']: e.target.value }))} /></div>
-                            <span style={{ fontSize: 16, color: '#888', paddingBottom: 8 }}>–</span>
-                            <div style={{ flex: 1 }}><label style={{ fontSize: 11, color: '#888', display: 'block', marginBottom: 3 }}>{c.challenged?.nombre}</label><input type="number" min="0" value={editTiebreaks[c.id + '_b'] || ''} onChange={e => setEditTiebreaks(t => ({ ...t, [c.id + '_b']: e.target.value }))} /></div>
-                          </div>
-                        </div>
-                      )}
+                      <div style={{ fontSize: 12, color: '#888', marginBottom: 8 }}>Corregir resultado ({FORMATOS[v2cfg?.formato_partido || 'set9']?.label}) — revierte y reaplica el ranking</div>
+                      <SetsInput formato={v2cfg?.formato_partido || 'set9'} sets={editSets} setSets={setEditSets}
+                        nameA={c.challenger?.nombre} nameB={c.challenged?.nombre} />
                       <div style={{ display: 'flex', gap: 8, marginTop: 8, justifyContent: 'flex-end' }}>
                         <button className="btn" style={{ fontSize: 12 }} onClick={() => setEditingId(null)}>Cancelar</button>
                         <button className="btn btn-accept" style={{ fontSize: 12 }} onClick={() => saveCorreccion(c)}>Guardar corrección</button>

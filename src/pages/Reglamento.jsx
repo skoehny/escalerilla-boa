@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import PelotaTenis from '../components/PelotaTenis'
+import { FORMATOS } from '../lib/formato'
 
 export default function Reglamento() {
   const [clubName, setClubName] = useState('Club BOA')
+  const [formato, setFormato] = useState('set9')
   useEffect(() => {
-    supabase.from('v2_config').select('nombre_club').eq('id', 1).single()
-      .then(({ data }) => { if (data?.nombre_club) setClubName(data.nombre_club) })
+    supabase.from('v2_config').select('nombre_club, formato_partido').eq('id', 1).single()
+      .then(({ data }) => { if (data?.nombre_club) setClubName(data.nombre_club); if (data?.formato_partido) setFormato(data.formato_partido) })
   }, [])
   return (
     <div>
@@ -26,9 +28,7 @@ export default function Reglamento() {
 
       <Rule n="2" title="Normas de juego">
         <p><strong>Sede:</strong> Todos los partidos deben jugarse en las canchas del {clubName}.</p>
-        <p style={{ marginTop: 8 }}><strong>Formato:</strong> Set largo a 9 games. El primero en llegar a 9 gana.</p>
-        <p style={{ marginTop: 8 }}><strong>Empate 8-8:</strong> Se define con Tie-break a 7 puntos (con diferencia mínima de 2).</p>
-        <p style={{ marginTop: 8 }}><strong>Resultado 9-8:</strong> Se considera tie-break y debe registrarse el marcador del tie-break.</p>
+        <p style={{ marginTop: 8 }}><strong>Formato ({FORMATOS[formato]?.label}):</strong> {FORMATOS[formato]?.regla}</p>
         <p style={{ marginTop: 8 }}><strong>Costos:</strong> El arriendo de cancha ($8.000 pp · 90 min) se divide en partes iguales entre ambos jugadores.</p>
         <p style={{ marginTop: 8 }}><strong>Inscripción:</strong> $15.000 — incluye premios y asado.</p>
       </Rule>

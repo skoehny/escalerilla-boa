@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import { getAllPlayers, getChallenges, updatePlayer, updateChallenge, confirmSlotPayment, getCourts, reserveSlot, supabase } from '../lib/supabase'
 import { useSession } from '../components/SessionContext'
 import { notifyReminder, notifyChallengeExpired, notifyPaymentConfirmed, notifyResult } from '../lib/notify'
+import SetsInput, { emptySets, setsFromChallenge } from '../components/SetsInput'
+import { validarMarcador, setsPayload, FORMATOS } from '../lib/formato'
 
 
 function courtDot(courtId) {
@@ -81,16 +83,13 @@ export default function Admin() {
   // ── Herramientas admin (v2) ──────────────────────────────
   async function saveCorregir() {
     const m = corregirModal
-    const sa = parseInt(m.score_a), sb = parseInt(m.score_b)
-    if (isNaN(sa) || isNaN(sb) || sa === sb) { ntf('Marcador inválido.', 'err'); return }
-    if (Math.max(sa, sb) !== 9) { ntf('El ganador debe llegar a 9.', 'err'); return }
-    const isTB = (sa === 9 && sb === 8) || (sa === 8 && sb === 9)
-    let tba = null, tbb = null
-    if (isTB) { tba = parseInt(m.tiebreak_a); tbb = parseInt(m.tiebreak_b); if (isNaN(tba) || isNaN(tbb)) { ntf('Ingresa el tiebreak.', 'err'); return } }
+    const formato = v2cfg?.formato_partido || 'set9'
+    const v = await validarMarcador(formato, m.sets || emptySets())
+    if (!v.ok) { ntf(v.error || 'Marcador inválido.', 'err'); return }
     try {
       const { error } = await supabase.rpc('corregir_resultado', {
         p_challenge_id: m.id, p_editor_id: sessionPlayer.id,
-        p_score_a: sa, p_score_b: sb, p_tiebreak_a: isTB ? tba : null, p_tiebreak_b: isTB ? tbb : null,
+        p_score_a: v.score_a, p_score_b: v.score_b, p_sets: setsPayload(formato, m.sets || emptySets()),
       })
       if (error) throw error
       setCorregirModal(null)
@@ -126,7 +125,9 @@ export default function Admin() {
     if (Object.values(nums).some(v => isNaN(v) || v < 1)) { ntf('Los valores numéricos deben ser enteros positivos (mayores a 0).', 'err'); return }
     const nombre_club = (cfgForm.nombre_club || '').trim()
     if (!nombre_club) { ntf('El nombre del club no puede estar vacío.', 'err'); return }
-    const upd = { ...nums, nombre_club }
+    const formato_partido = cfgForm.formato_partido || 'set9'
+    if (!['set9', 'set6', 'dos_sets'].includes(formato_partido)) { ntf('Formato de partido inválido.', 'err'); return }
+    const upd = { ...nums, nombre_club, formato_partido }
     try {
       const { error } = await supabase.from('v2_config').update(upd).eq('id', 1)
       if (error) throw error
@@ -356,37 +357,31 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
   // ── Resultados ───────────────────────────────────────────
   async function saveResult() {
     const m = resultModal
-    const sa = parseInt(m.score_a), sb = parseInt(m.score_b)
-    if (isNaN(sa) || isNaN(sb)) { ntf('Ingresa los games', 'err'); return }
-    if (sa === sb) { ntf('No puede terminar empatado.', 'err'); return }
-    if (sa < 0 || sb < 0 || sa > 9 || sb > 9) { ntf('Games entre 0 y 9.', 'err'); return }
-    const isTB = (sa === 9 && sb === 8) || (sa === 8 && sb === 9)
-    if (isTB) {
-      const tba = parseInt(m.tiebreak_a), tbb = parseInt(m.tiebreak_b)
-      if (isNaN(tba) || isNaN(tbb) || Math.abs(tba - tbb) < 2) { ntf('Tiebreak inválido — diferencia mínima 2', 'err'); return }
-    }
     if (!m.slot_court) { ntf('Selecciona la cancha.', 'err'); return }
     const finalDay = m.slot_day_edit || m.slot_day || null
     if (!finalDay) { ntf('Ingresa la fecha del partido.', 'err'); return }
     if (!m.slot_hour) { ntf('Ingresa la hora del partido.', 'err'); return }
-    const slotDay = m.slot_day_edit || finalDay
-    const winner = sa > sb ? 'challenger' : 'challenged'
+    const formato = v2cfg?.formato_partido || 'set9'
+    const v = await validarMarcador(formato, m.sets || emptySets())
+    if (!v.ok) { ntf(v.error || 'Marcador inválido.', 'err'); return }
+    const winner = v.ganador === 'a' ? 'challenger' : 'challenged'
     const ch = players.find(p => p.id === m.challenger_id)
     const cd = players.find(p => p.id === m.challenged_id)
     const winnerP = winner === 'challenger' ? ch : cd
-    const loserP = winner === 'challenger' ? cd : ch
     try {
+      // Guardar + aplicar al instante (aplicar_resultado mueve ranking y recalcula stats).
       await updateChallenge(m.id, {
-        status: 'completed', score_a: sa, score_b: sb, ganador: winner,
-        slot_court: m.slot_court, slot_day: slotDay, slot_hour: m.slot_hour,
-        ranking_applied: false, resultado_validado: false,
-        ...(isTB ? { tiebreak_a: parseInt(m.tiebreak_a), tiebreak_b: parseInt(m.tiebreak_b) } : { tiebreak_a: null, tiebreak_b: null })
+        status: 'completed', score_a: v.score_a, score_b: v.score_b, ganador: winner,
+        sets: setsPayload(formato, m.sets || emptySets()),
+        slot_court: m.slot_court, slot_day: finalDay, slot_hour: m.slot_hour,
+        anotado_por: sessionPlayer.id, ranking_applied: false, resultado_validado: false,
+        tiebreak_a: null, tiebreak_b: null,
       })
-      if (winnerP) await updatePlayer(winnerP.id, { victorias: (winnerP.victorias || 0) + 1 })
-      if (loserP) await updatePlayer(loserP.id, { derrotas: (loserP.derrotas || 0) + 1 })
-      await notifyResult(ch, cd, sa, sb, winnerP, null)
+      const { error } = await supabase.rpc('aplicar_resultado', { p_challenge_id: m.id })
+      if (error) throw error
+      await notifyResult(ch, cd, v.score_a, v.score_b, winnerP, null)
       setResultModal(null)
-      ntf(`Resultado guardado: ${sa}–${sb}. ${winnerP?.nombre} gana.`)
+      ntf(`Resultado guardado. ${winnerP?.nombre} gana. Ranking actualizado.`)
       load()
     } catch (err) { ntf(err.message, 'err') }
   }
@@ -628,7 +623,7 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
                       }
                       {c.slot_day && !c.pago_confirmado && <button className="btn btn-accept" style={{ fontSize: 12 }} onClick={() => validatePayment(c)}>Validar pago</button>}
                       <button className="btn btn-accept" style={{ fontSize: 12, borderColor: '#185FA5', color: '#185FA5' }}
-                        onClick={() => setResultModal({ ...c, challenger_id: c.challenger_id || c.challenger?.id, challenged_id: c.challenged_id || c.challenged?.id, challenger: ch, challenged: cd, score_a: '', score_b: '', tiebreak_a: '', tiebreak_b: '', slot_court: c.slot_court || courts[0]?.id || '', slot_day_edit: new Date().toLocaleDateString('en-CA'), slot_hour: c.slot_hour || '18:00' })}>
+                        onClick={() => setResultModal({ ...c, challenger_id: c.challenger_id || c.challenger?.id, challenged_id: c.challenged_id || c.challenged?.id, challenger: ch, challenged: cd, sets: emptySets(), slot_court: c.slot_court || courts[0]?.id || '', slot_day_edit: new Date().toLocaleDateString('en-CA'), slot_hour: c.slot_hour || '18:00' })}>
                         Ingresar resultado
                       </button>
                       <button className="btn btn-warn" style={{ fontSize: 12 }}
@@ -670,7 +665,7 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
                     <span className="badge badge-green" style={{ marginRight: 8 }}>{w?.nombre}</span>
                     {c.ranking_applied && c.applied_at && (Date.now() - new Date(c.applied_at).getTime() < 14 * 24 * 3600000) && (
                       <button className="btn" style={{ fontSize: 11, padding: '2px 8px' }}
-                        onClick={() => setCorregirModal({ id: c.id, challenger: ch, challenged: cd, score_a: c.score_a, score_b: c.score_b, tiebreak_a: c.tiebreak_a || '', tiebreak_b: c.tiebreak_b || '' })}>
+                        onClick={() => setCorregirModal({ id: c.id, challenger: ch, challenged: cd, sets: setsFromChallenge(c) })}>
                         Corregir
                       </button>
                     )}
@@ -758,6 +753,15 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
               <label>Nombre del club</label>
               <input type="text" value={cfgForm.nombre_club ?? ''} onChange={e => setCfgForm(f => ({ ...f, nombre_club: e.target.value }))} />
             </div>
+            <div className="form-row" style={{ marginBottom: 10 }}>
+              <label>Formato de partido</label>
+              <select value={cfgForm.formato_partido ?? 'set9'} onChange={e => setCfgForm(f => ({ ...f, formato_partido: e.target.value }))}>
+                <option value="set9">1 set a 9</option>
+                <option value="set6">1 set a 6</option>
+                <option value="dos_sets">2 sets a 6 + super tiebreak</option>
+              </select>
+              <p style={{ fontSize: 11, color: '#888', marginTop: 4 }}>Aplica a los partidos que se ingresen desde ahora; los ya jugados no se tocan.</p>
+            </div>
             <button className="btn btn-accept" style={{ marginTop: 4 }} onClick={saveConfig}>Guardar configuración</button>
             <p style={{ fontSize: 11, color: '#888', marginTop: 8 }}>Los cambios aplican a desafíos y resultados nuevos. Los desafíos ya creados conservan su fecha de expiración.</p>
           </div>
@@ -772,27 +776,11 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
           <div className="modal">
             <h3>Corregir resultado</h3>
             <p style={{ fontSize: 13, color: '#555', marginBottom: 4 }}>{corregirModal.challenger?.nombre} vs {corregirModal.challenged?.nombre}</p>
-            <p style={{ fontSize: 12, color: '#888', marginBottom: 12 }}>Revierte y reaplica el ranking con el nuevo marcador (salta ventana y validación).</p>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <div className="form-row" style={{ flex: 1 }}>
-                <label>{corregirModal.challenger?.nombre}</label>
-                <input type="number" min="0" max="9" value={corregirModal.score_a} onChange={e => setCorregirModal(m => ({ ...m, score_a: e.target.value }))} />
-              </div>
-              <div className="form-row" style={{ flex: 1 }}>
-                <label>{corregirModal.challenged?.nombre}</label>
-                <input type="number" min="0" max="9" value={corregirModal.score_b} onChange={e => setCorregirModal(m => ({ ...m, score_b: e.target.value }))} />
-              </div>
-            </div>
-            {((String(corregirModal.score_a) === '9' && String(corregirModal.score_b) === '8') || (String(corregirModal.score_a) === '8' && String(corregirModal.score_b) === '9')) && (
-              <div style={{ background: '#FAEEDA', borderRadius: 8, padding: '8px 10px', marginBottom: 10 }}>
-                <div style={{ fontSize: 12, fontWeight: 500, color: '#633806', marginBottom: 6 }}>Tiebreak 9-8</div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <div className="form-row" style={{ flex: 1 }}><label>{corregirModal.challenger?.nombre}</label><input type="number" min="0" value={corregirModal.tiebreak_a} onChange={e => setCorregirModal(m => ({ ...m, tiebreak_a: e.target.value }))} /></div>
-                  <div className="form-row" style={{ flex: 1 }}><label>{corregirModal.challenged?.nombre}</label><input type="number" min="0" value={corregirModal.tiebreak_b} onChange={e => setCorregirModal(m => ({ ...m, tiebreak_b: e.target.value }))} /></div>
-                </div>
-              </div>
-            )}
-            <div className="modal-actions">
+            <p style={{ fontSize: 12, color: '#888', marginBottom: 12 }}>Revierte y reaplica el ranking con el nuevo marcador ({FORMATOS[v2cfg?.formato_partido || 'set9']?.label}; salta ventana y validación).</p>
+            <SetsInput formato={v2cfg?.formato_partido || 'set9'} sets={corregirModal.sets || emptySets()}
+              setSets={(next) => setCorregirModal(m => ({ ...m, sets: next }))}
+              nameA={corregirModal.challenger?.nombre} nameB={corregirModal.challenged?.nombre} />
+            <div className="modal-actions" style={{ marginTop: 10 }}>
               <button className="btn" onClick={() => setCorregirModal(null)}>Cancelar</button>
               <button className="btn btn-accept" onClick={saveCorregir}>Corregir</button>
             </div>
@@ -849,33 +837,11 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
               </div>
             </div>
 
-            <div style={{ display: 'flex', gap: 8 }}>
-              <div className="form-row" style={{ flex: 1 }}>
-                <label>{resultModal.challenger?.nombre}</label>
-                <input type="number" min="0" max="9" value={resultModal.score_a} onChange={e => setResultModal(m => ({ ...m, score_a: e.target.value }))} />
-              </div>
-              <div className="form-row" style={{ flex: 1 }}>
-                <label>{resultModal.challenged?.nombre}</label>
-                <input type="number" min="0" max="9" value={resultModal.score_b} onChange={e => setResultModal(m => ({ ...m, score_b: e.target.value }))} />
-              </div>
-            </div>
-            {((String(resultModal.score_a) === '9' && String(resultModal.score_b) === '8') ||
-              (String(resultModal.score_a) === '8' && String(resultModal.score_b) === '9')) && (
-              <div style={{ background: '#FAEEDA', borderRadius: 8, padding: '8px 10px', marginBottom: 10 }}>
-                <div style={{ fontSize: 12, fontWeight: 500, color: '#633806', marginBottom: 8 }}>Tiebreak 9-8</div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <div className="form-row" style={{ flex: 1 }}>
-                    <label>{resultModal.challenger?.nombre}</label>
-                    <input type="number" min="0" value={resultModal.tiebreak_a} onChange={e => setResultModal(m => ({ ...m, tiebreak_a: e.target.value }))} />
-                  </div>
-                  <div className="form-row" style={{ flex: 1 }}>
-                    <label>{resultModal.challenged?.nombre}</label>
-                    <input type="number" min="0" value={resultModal.tiebreak_b} onChange={e => setResultModal(m => ({ ...m, tiebreak_b: e.target.value }))} />
-                  </div>
-                </div>
-              </div>
-            )}
-            <div className="modal-actions">
+            <div style={{ fontSize: 11, color: '#888', marginBottom: 6 }}>Marcador · {FORMATOS[v2cfg?.formato_partido || 'set9']?.label}</div>
+            <SetsInput formato={v2cfg?.formato_partido || 'set9'} sets={resultModal.sets || emptySets()}
+              setSets={(next) => setResultModal(m => ({ ...m, sets: next }))}
+              nameA={resultModal.challenger?.nombre} nameB={resultModal.challenged?.nombre} />
+            <div className="modal-actions" style={{ marginTop: 10 }}>
               <button className="btn" onClick={() => setResultModal(null)}>Cancelar</button>
               <button className="btn btn-accept" onClick={saveResult}>Guardar</button>
             </div>

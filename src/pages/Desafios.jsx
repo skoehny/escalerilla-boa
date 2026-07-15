@@ -11,6 +11,8 @@ function fmtDate(d) {
 }
 import { notifyChallengeAccepted, notifyChallengeRejected, notifyChallengeExpired } from '../lib/notify'
 import { useSession } from '../components/SessionContext'
+import SetsInput, { emptySets } from '../components/SetsInput'
+import { validarMarcador, setsPayload, FORMATOS } from '../lib/formato'
 
 const HOURS = []
 for (let h = 7; h < 22; h++) {
@@ -38,7 +40,8 @@ export default function Desafios() {
   const [slotModal, setSlotModal] = useState(null)
   const [slotError, setSlotError] = useState('')
   const [playedModal, setPlayedModal] = useState(null)  // { id, challenger, challenged }
-  const [playedData, setPlayedData] = useState({ court: '', day: '', hour: '18:00', sa: '', sb: '', tba: '', tbb: '' })
+  const [playedData, setPlayedData] = useState({ court: '', day: '', hour: '18:00' })
+  const [playedSets, setPlayedSets] = useState(emptySets())
   const [playedError, setPlayedError] = useState('')
   const [cancelModal, setCancelModal] = useState(null)  // challenge a cancelar
   const [cancelReason, setCancelReason] = useState('')
@@ -102,28 +105,21 @@ export default function Desafios() {
   }
 
   async function markAsPlayed() {
-    const { court, day, hour, sa, sb, tba, tbb } = playedData
-    const scoreA = parseInt(sa), scoreB = parseInt(sb)
+    const { court, day, hour } = playedData
     if (!court) { setPlayedError('Selecciona la cancha.'); return }
     if (!day) { setPlayedError('Indica la fecha del partido.'); return }
     if (!hour) { setPlayedError('Indica la hora del partido.'); return }
-    if (isNaN(scoreA) || isNaN(scoreB)) { setPlayedError('Ingresa el resultado (games de cada uno).'); return }
-    if (scoreA < 0 || scoreB < 0 || scoreA > 9 || scoreB > 9) { setPlayedError('Games entre 0 y 9.'); return }
-    if (scoreA === scoreB) { setPlayedError('No puede terminar empatado.'); return }
-    const isTB = (scoreA === 9 && scoreB === 8) || (scoreA === 8 && scoreB === 9)
-    if (isTB && (isNaN(parseInt(tba)) || isNaN(parseInt(tbb)))) { setPlayedError('Ingresa el marcador del tiebreak.'); return }
-    const slotDay = day
+    const formato = v2cfg?.formato_partido || 'set9'
+    const v = await validarMarcador(formato, playedSets)
+    if (!v.ok) { setPlayedError(v.error || 'Marcador inválido.'); return }
     try {
       await updateChallenge(playedModal.id, {
         status: 'completed',
-        slot_court: court,
-        slot_day: slotDay,
-        slot_hour: hour,
-        score_a: scoreA,
-        score_b: scoreB,
-        ganador: scoreA > scoreB ? 'challenger' : 'challenged',
-        tiebreak_a: isTB ? parseInt(tba) : null,
-        tiebreak_b: isTB ? parseInt(tbb) : null,
+        slot_court: court, slot_day: day, slot_hour: hour,
+        score_a: v.score_a, score_b: v.score_b,
+        ganador: v.ganador === 'a' ? 'challenger' : 'challenged',
+        sets: setsPayload(formato, playedSets),
+        tiebreak_a: null, tiebreak_b: null,
         anotado_por: player.id,
         ranking_applied: false,
         resultado_validado: false,
@@ -133,7 +129,8 @@ export default function Desafios() {
       const { error } = await supabase.rpc('aplicar_resultado', { p_challenge_id: playedModal.id })
       if (error) throw error
       setPlayedModal(null)
-      setPlayedData({ court: '', day: '', hour: '18:00', sa: '', sb: '', tba: '', tbb: '' })
+      setPlayedData({ court: '', day: '', hour: '18:00' })
+      setPlayedSets(emptySets())
       setPlayedError('')
       ntf('Resultado guardado. Ranking actualizado. El rival puede validarlo o corregirlo en Resultados.')
       load()
@@ -155,7 +152,7 @@ export default function Desafios() {
   // valida quién puede marcarlo, mueve el ranking y loguea 'por WO').
   async function markWO(c) {
     const rival = c.challenger_id === player.id ? c.challenged : c.challenger
-    if (!window.confirm(`¿Marcar WO contra ${rival?.nombre} ${rival?.apellido}? Ganás 9-0 y el ranking se actualiza al instante. El rival podrá corregir o disputar dentro de las próximas 24 horas.`)) return
+    if (!window.confirm(`¿Marcar WO contra ${rival?.nombre} ${rival?.apellido}? Ganás por WO y el ranking se actualiza al instante. El rival podrá corregir o disputar dentro de las próximas 24 horas.`)) return
     try {
       const { error } = await supabase.rpc('marcar_wo', { p_challenge_id: c.id, p_marker_id: player.id })
       if (error) throw error
@@ -248,7 +245,7 @@ export default function Desafios() {
                 </div>
                 <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
                   <button className="btn btn-accept" style={{ fontSize: 12, padding: '4px 10px' }}
-                    onClick={() => { setPlayedModal({ id: c.id, challenger: c.challenger, challenged: c.challenged }); setPlayedData({ court: courts[0]?.id || '', day: new Date().toLocaleDateString('en-CA'), hour: '18:00', sa: '', sb: '', tba: '', tbb: '' }); setPlayedError('') }}>
+                    onClick={() => { setPlayedModal({ id: c.id, challenger: c.challenger, challenged: c.challenged }); setPlayedData({ court: courts[0]?.id || '', day: new Date().toLocaleDateString('en-CA'), hour: '18:00' }); setPlayedSets(emptySets()); setPlayedError('') }}>
                     Jugamos
                   </button>
                   {woSinSlot(c) && (
@@ -463,36 +460,12 @@ export default function Desafios() {
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>
-              <div className="form-row">
-                <label>{playedModal.challenger?.nombre} (games) *</label>
-                <input type="number" min="0" max="9" value={playedData.sa}
-                  onChange={e => { setPlayedData(d => ({ ...d, sa: e.target.value })); setPlayedError('') }}
-                  placeholder="0–9" inputMode="numeric" />
-              </div>
-              <div className="form-row">
-                <label>{playedModal.challenged?.nombre} (games) *</label>
-                <input type="number" min="0" max="9" value={playedData.sb}
-                  onChange={e => { setPlayedData(d => ({ ...d, sb: e.target.value })); setPlayedError('') }}
-                  placeholder="0–9" inputMode="numeric" />
-              </div>
+            <div style={{ marginTop: 10 }}>
+              <div style={{ fontSize: 11, color: '#888', marginBottom: 6 }}>Marcador · {FORMATOS[v2cfg?.formato_partido || 'set9']?.label}</div>
+              <SetsInput formato={v2cfg?.formato_partido || 'set9'} sets={playedSets}
+                setSets={(next) => { setPlayedSets(next); setPlayedError('') }}
+                nameA={playedModal.challenger?.nombre} nameB={playedModal.challenged?.nombre} />
             </div>
-
-            {((parseInt(playedData.sa) === 9 && parseInt(playedData.sb) === 8) ||
-              (parseInt(playedData.sa) === 8 && parseInt(playedData.sb) === 9)) && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                <div className="form-row">
-                  <label>Tiebreak {playedModal.challenger?.nombre} *</label>
-                  <input type="number" min="0" value={playedData.tba}
-                    onChange={e => setPlayedData(d => ({ ...d, tba: e.target.value }))} inputMode="numeric" />
-                </div>
-                <div className="form-row">
-                  <label>Tiebreak {playedModal.challenged?.nombre} *</label>
-                  <input type="number" min="0" value={playedData.tbb}
-                    onChange={e => setPlayedData(d => ({ ...d, tbb: e.target.value }))} inputMode="numeric" />
-                </div>
-              </div>
-            )}
 
             <div className="modal-actions">
               <button className="btn" onClick={() => setPlayedModal(null)}>Cancelar</button>
