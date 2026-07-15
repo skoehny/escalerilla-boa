@@ -4,8 +4,8 @@
   "description": "Torneo escalerilla de tenis · Santiago",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0F6E56",
-  "theme_color": "#0F6E56",
+  "background_color": "#1B5E20",
+  "theme_color": "#1B5E20",
   "orientation": "portrait",
   "lang": "es",
   "icons": [
