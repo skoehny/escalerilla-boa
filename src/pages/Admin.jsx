@@ -182,35 +182,11 @@ export default function Admin() {
     const dup = players.find(x => x.id !== p.id && x.nombre?.trim().toLowerCase() === p.nombre?.trim().toLowerCase() && x.apellido?.trim().toLowerCase() === p.apellido?.trim().toLowerCase())
     if (dup) { ntf(`Ya existe otro jugador con el mismo nombre y apellido (#${dup.posicion}).`, 'err'); return }
     if (!p.telefono?.trim() || !/^9\d{8}$/.test(p.telefono)) { ntf('El teléfono debe tener 9 dígitos y empezar con 9 (ej: 912345678).', 'err'); return }
-    const newPos = parseInt(p.posicion)
-    const oldPos = players.find(x => x.id === p.id)?.posicion
-    
-    // Reorder other players if position changed
-    if (newPos && newPos !== oldPos) {
-      if (!oldPos) {
-        // Sin posición previa: abrir hueco en newPos
-        for (const pl of players) {
-          if (pl.id !== p.id && pl.posicion >= newPos)
-            await updatePlayer(pl.id, { posicion: pl.posicion + 1 })
-        }
-      } else if (newPos < oldPos) {
-        // Mover arriba: [newPos..oldPos-1] bajan uno
-        for (const pl of players) {
-          if (pl.id !== p.id && pl.posicion >= newPos && pl.posicion < oldPos)
-            await updatePlayer(pl.id, { posicion: pl.posicion + 1 })
-        }
-      } else {
-        // Mover abajo: [oldPos+1..newPos] suben uno
-        for (const pl of players) {
-          if (pl.id !== p.id && pl.posicion > oldPos && pl.posicion <= newPos)
-            await updatePlayer(pl.id, { posicion: pl.posicion - 1 })
-        }
-      }
-    }
-    
-    await updatePlayer(p.id, { nombre: p.nombre, apellido: p.apellido, email: p.email, telefono: p.telefono, posicion: newPos, es_admin: p.es_admin, wildcard_usada: p.wildcard_usada || false })
+    // La posición NO se edita acá: usar "Ajustar posición" (admin_ajustar_posicion,
+    // atómico y con log). Este form solo actualiza datos de perfil.
+    await updatePlayer(p.id, { nombre: p.nombre, apellido: p.apellido, email: p.email, telefono: p.telefono, es_admin: p.es_admin, wildcard_usada: p.wildcard_usada || false })
     setEditPlayerModal(null)
-    ntf('Perfil actualizado. Ranking reordenado.')
+    ntf('Perfil actualizado.')
     load()
   }
 
@@ -701,8 +677,6 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
                     ? <span style={{ fontSize: 10, color: '#ccc' }}>WC</span>
                     : <span style={{ fontSize: 10, color: '#BA7517', fontWeight: 600 }}>⭐ WC</span>}
                   <button className="btn" style={{ fontSize: 11, padding: '2px 8px' }}
-                    onClick={() => setAjustarModal({ id: p.id, nombre: `${p.nombre} ${p.apellido}`, actual: p.posicion, nueva_pos: p.posicion, motivo: '' })}>Posición</button>
-                  <button className="btn" style={{ fontSize: 11, padding: '2px 8px' }}
                     onClick={() => setEditPlayerModal({ ...p })}>Editar</button>
                 </div>
               ))}
@@ -1135,7 +1109,18 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
                 <input value={editPlayerModal.telefono || ''} onChange={e => setEditPlayerModal(m => ({ ...m, telefono: e.target.value.replace(/[^0-9]/g, '') }))} inputMode="numeric" maxLength={9} placeholder="912345678" style={{ flex: 1 }} />
               </div>
             </div>
-            <div className="form-row"><label>Posición</label><input type="number" value={editPlayerModal.posicion || ''} onChange={e => setEditPlayerModal(m => ({ ...m, posicion: e.target.value }))} /></div>
+            <div className="form-row">
+              <label>Posición</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 14 }}>{editPlayerModal.posicion != null ? `#${editPlayerModal.posicion}` : '—'}</span>
+                {editPlayerModal.activo && editPlayerModal.posicion != null && (
+                  <button className="btn" style={{ fontSize: 12, padding: '4px 10px' }}
+                    onClick={() => { setAjustarModal({ id: editPlayerModal.id, nombre: `${editPlayerModal.nombre} ${editPlayerModal.apellido}`, actual: editPlayerModal.posicion, nueva_pos: editPlayerModal.posicion, motivo: '' }); setEditPlayerModal(null) }}>
+                    Ajustar posición
+                  </button>
+                )}
+              </div>
+            </div>
             <div className="form-row" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <input type="checkbox" id="admin-check" checked={editPlayerModal.es_admin || false} onChange={e => setEditPlayerModal(m => ({ ...m, es_admin: e.target.checked }))} style={{ width: 16, height: 16 }} />
               <label htmlFor="admin-check" style={{ fontSize: 13, color: '#333', marginBottom: 0 }}>Es administrador</label>
