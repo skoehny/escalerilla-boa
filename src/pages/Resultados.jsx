@@ -78,6 +78,26 @@ export default function Resultados() {
 
   function ntf(msg, type = 'ok') { setNotif({ msg, type }); setTimeout(() => setNotif(null), 4000) }
 
+  // Arma el texto compartible desde el jsonb de una foto de ranking_history
+  function shareResumen(week) {
+    const lines = [`🎾 Escalerilla BOA — Ranking Semana ${week.semana}`, '', '🏆 Top 5']
+    ;(week.data || []).slice(0, 5).forEach(p => lines.push(`${p.posicion}. ${p.nombre} ${p.apellido}`))
+    const movs = week.movimientos?.movements || []
+    if (movs.length) {
+      lines.push('', '📊 Movimientos de la semana')
+      movs.forEach(m => lines.push(`${m.delta > 0 ? '⬆️' : '⬇️'}${Math.abs(m.delta)} ${m.nombre} (#${m.desde}→#${m.hasta})`))
+    }
+    const notas = week.movimientos?.notas || []
+    if (notas.length) {
+      lines.push('', '📝 Resumen')
+      notas.forEach(n => lines.push(`• ${n}`))
+    }
+    lines.push('', 'https://escalerilla-boa.vercel.app/')
+    const text = lines.join('\n')
+    if (navigator.share) { navigator.share({ text }).catch(() => {}) }
+    else { navigator.clipboard.writeText(text); ntf('Resumen copiado al portapapeles.') }
+  }
+
   // ── Reglas de estado (v2: aplicación instantánea) ──────────────
   function isMyMatch(c) {
     return c.challenger_id === player?.id || c.challenged_id === player?.id
@@ -262,6 +282,11 @@ export default function Resultados() {
                           ¿Por qué estos cambios?
                         </button>
                       )}
+                      <button className="btn btn-accept" style={{ fontSize: 11, padding: '2px 10px', marginTop: 4, marginLeft: 4 }}
+                        onClick={() => shareResumen(week)}>
+                        <i className="ti ti-brand-whatsapp" style={{ verticalAlign: -2, marginRight: 3 }} aria-hidden="true" />
+                        Compartir
+                      </button>
                     </div>
                     <button className="btn" style={{ fontSize: 12, padding: '4px 10px' }}
                       onClick={() => setSelectedWeekIdx(i => Math.max(i - 1, 0))}
