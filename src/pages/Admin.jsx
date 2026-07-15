@@ -181,6 +181,10 @@ export default function Admin() {
   const [resultModal, setResultModal] = useState(null) // ingresar resultado desde admin
   const [woModal, setWoModal] = useState(null)
   const [cancelModal, setCancelModal] = useState(null)
+  const [corregirModal, setCorregirModal] = useState(null) // corregir resultado (admin)
+  const [ajustarModal, setAjustarModal] = useState(null)   // ajustar posición (admin)
+  const [v2cfg, setV2cfg] = useState(null)
+  const [cfgForm, setCfgForm] = useState(null)
 
   useEffect(() => { load() }, [])
 
@@ -192,10 +196,66 @@ export default function Admin() {
       setCourts(co)
       const { data: snaps } = await supabase.from('ranking_snapshots').select('*').order('id', { ascending: false }).limit(1)
       setSnapshots(snaps || [])
+      const { data: cfg } = await supabase.from('v2_config').select('*').eq('id', 1).single()
+      setV2cfg(cfg); setCfgForm(cfg)
     } finally { setLoading(false) }
   }
 
   function ntf(msg, type = 'ok') { setNotif({ msg, type }); setTimeout(() => setNotif(null), 4000) }
+
+  // ── Herramientas admin (v2) ──────────────────────────────
+  async function saveCorregir() {
+    const m = corregirModal
+    const sa = parseInt(m.score_a), sb = parseInt(m.score_b)
+    if (isNaN(sa) || isNaN(sb) || sa === sb) { ntf('Marcador inválido.', 'err'); return }
+    if (Math.max(sa, sb) !== 9) { ntf('El ganador debe llegar a 9.', 'err'); return }
+    const isTB = (sa === 9 && sb === 8) || (sa === 8 && sb === 9)
+    let tba = null, tbb = null
+    if (isTB) { tba = parseInt(m.tiebreak_a); tbb = parseInt(m.tiebreak_b); if (isNaN(tba) || isNaN(tbb)) { ntf('Ingresa el tiebreak.', 'err'); return } }
+    try {
+      const { error } = await supabase.rpc('corregir_resultado', {
+        p_challenge_id: m.id, p_editor_id: sessionPlayer.id,
+        p_score_a: sa, p_score_b: sb, p_tiebreak_a: isTB ? tba : null, p_tiebreak_b: isTB ? tbb : null,
+      })
+      if (error) throw error
+      setCorregirModal(null)
+      ntf('Resultado corregido: ranking reajustado.')
+      load()
+    } catch (err) {
+      const msg = err.message || 'No se pudo corregir.'
+      ntf(/otros partidos después/i.test(msg) ? msg + ' Usá "Ajustar posición" para mover manualmente.' : msg, 'err')
+    }
+  }
+
+  async function saveAjustar() {
+    const m = ajustarModal
+    const pos = parseInt(m.nueva_pos)
+    if (isNaN(pos)) { ntf('Ingresa la posición.', 'err'); return }
+    if (!m.motivo?.trim()) { ntf('Indica el motivo.', 'err'); return }
+    try {
+      const { error } = await supabase.rpc('admin_ajustar_posicion', { p_player: m.id, p_nueva_pos: pos, p_motivo: m.motivo.trim() })
+      if (error) throw error
+      setAjustarModal(null)
+      ntf('Posición ajustada.')
+      load()
+    } catch (err) { ntf(err.message || 'No se pudo ajustar.', 'err') }
+  }
+
+  async function saveConfig() {
+    const upd = {
+      ventana_validacion_minutos: parseInt(cfgForm.ventana_validacion_minutos),
+      dias_expiracion_desafio: parseInt(cfgForm.dias_expiracion_desafio),
+      horas_wo_cancelacion: parseInt(cfgForm.horas_wo_cancelacion),
+      max_puestos_desafio: parseInt(cfgForm.max_puestos_desafio),
+    }
+    if (Object.values(upd).some(v => isNaN(v) || v < 0)) { ntf('Valores inválidos.', 'err'); return }
+    try {
+      const { error } = await supabase.from('v2_config').update(upd).eq('id', 1)
+      if (error) throw error
+      setV2cfg({ ...v2cfg, ...upd })
+      ntf('Configuración guardada.')
+    } catch (err) { ntf(err.message || 'No se pudo guardar.', 'err') }
+  }
 
   // ── Ranking ──────────────────────────────────────────────
   async function confirmWithPin(action) {
@@ -629,7 +689,7 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
 
   if (loading) return <p style={{ color: '#888', fontSize: 13, padding: 24 }}>Cargando...</p>
 
-  const tabs = ['acciones', 'desafíos', 'resultados', 'jugadores']
+  const tabs = ['acciones', 'desafíos', 'resultados', 'jugadores', 'config']
   const esJueves = new Date().getDay() === 4
 
   return (
@@ -639,7 +699,7 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 0, marginBottom: 14, borderBottom: '0.5px solid #e0dfd8', overflowX: 'auto' }}>
         {tabs.map(t => (
-          <button key={t} onClick={() => {
+          <button key={t} onClick={() => {
             setActiveTab(t)
           }} style={{
             padding: '8px 14px', fontSize: 13, cursor: 'pointer', border: 'none',
@@ -860,11 +920,12 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
                       <span style={{ fontWeight: c.ganador === 'challenged' ? 500 : 400 }}>{cd?.nombre}</span>
                     </span>
                     <span className="badge badge-green" style={{ marginRight: 8 }}>{w?.nombre}</span>
-                    <button className="btn" style={{ fontSize: 11, padding: '2px 8px', opacity: 0.5 }}
-                      title="v2: usar Corregir (recalcula el ranking)"
-                      onClick={() => ntf('v2: la edición cruda está deshabilitada. Usar Corregir (recalcula el ranking).', 'warn')}>
-                      Editar
-                    </button>
+                    {c.ranking_applied && c.applied_at && (Date.now() - new Date(c.applied_at).getTime() < 14 * 24 * 3600000) && (
+                      <button className="btn" style={{ fontSize: 11, padding: '2px 8px' }}
+                        onClick={() => setCorregirModal({ id: c.id, challenger: ch, challenged: cd, score_a: c.score_a, score_b: c.score_b, tiebreak_a: c.tiebreak_a || '', tiebreak_b: c.tiebreak_b || '' })}>
+                        Corregir
+                      </button>
+                    )}
                   </div>
                 )
               })
@@ -897,6 +958,8 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
                     ? <span style={{ fontSize: 10, color: '#ccc' }}>WC</span>
                     : <span style={{ fontSize: 10, color: '#BA7517', fontWeight: 600 }}>⭐ WC</span>}
                   <button className="btn" style={{ fontSize: 11, padding: '2px 8px' }}
+                    onClick={() => setAjustarModal({ id: p.id, nombre: `${p.nombre} ${p.apellido}`, actual: p.posicion, nueva_pos: p.posicion, motivo: '' })}>Posición</button>
+                  <button className="btn" style={{ fontSize: 11, padding: '2px 8px' }}
                     onClick={() => setEditPlayerModal({ ...p })}>Editar</button>
                 </div>
               ))}
@@ -926,7 +989,83 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
         </div>
       )}
 
+      {/* CONFIGURACIÓN v2 */}
+      {activeTab === 'config' && cfgForm && (
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>Configuración v2</div>
+          <div className="card" style={{ padding: '14px 16px' }}>
+            {[
+              ['ventana_validacion_minutos', 'Ventana de validación/corrección (minutos)'],
+              ['dias_expiracion_desafio', 'Expiración de desafío (días)'],
+              ['horas_wo_cancelacion', 'Cancelación tardía → WO (horas)'],
+              ['max_puestos_desafio', 'Rango máximo de desafío (puestos)'],
+            ].map(([key, label]) => (
+              <div className="form-row" key={key} style={{ marginBottom: 10 }}>
+                <label>{label}</label>
+                <input type="number" min="0" value={cfgForm[key] ?? ''} onChange={e => setCfgForm(f => ({ ...f, [key]: e.target.value }))} />
+              </div>
+            ))}
+            <button className="btn btn-accept" style={{ marginTop: 4 }} onClick={saveConfig}>Guardar configuración</button>
+            <p style={{ fontSize: 11, color: '#888', marginTop: 8 }}>Los cambios aplican a desafíos y resultados nuevos. Los desafíos ya creados conservan su fecha de expiración.</p>
+          </div>
+        </div>
+      )}
+
       {/* ── MODALS ── */}
+
+      {/* Corregir resultado (admin) */}
+      {corregirModal && (
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setCorregirModal(null) }}>
+          <div className="modal">
+            <h3>Corregir resultado</h3>
+            <p style={{ fontSize: 13, color: '#555', marginBottom: 4 }}>{corregirModal.challenger?.nombre} vs {corregirModal.challenged?.nombre}</p>
+            <p style={{ fontSize: 12, color: '#888', marginBottom: 12 }}>Revierte y reaplica el ranking con el nuevo marcador (salta ventana y validación).</p>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <div className="form-row" style={{ flex: 1 }}>
+                <label>{corregirModal.challenger?.nombre}</label>
+                <input type="number" min="0" max="9" value={corregirModal.score_a} onChange={e => setCorregirModal(m => ({ ...m, score_a: e.target.value }))} />
+              </div>
+              <div className="form-row" style={{ flex: 1 }}>
+                <label>{corregirModal.challenged?.nombre}</label>
+                <input type="number" min="0" max="9" value={corregirModal.score_b} onChange={e => setCorregirModal(m => ({ ...m, score_b: e.target.value }))} />
+              </div>
+            </div>
+            {((String(corregirModal.score_a) === '9' && String(corregirModal.score_b) === '8') || (String(corregirModal.score_a) === '8' && String(corregirModal.score_b) === '9')) && (
+              <div style={{ background: '#FAEEDA', borderRadius: 8, padding: '8px 10px', marginBottom: 10 }}>
+                <div style={{ fontSize: 12, fontWeight: 500, color: '#633806', marginBottom: 6 }}>Tiebreak 9-8</div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <div className="form-row" style={{ flex: 1 }}><label>{corregirModal.challenger?.nombre}</label><input type="number" min="0" value={corregirModal.tiebreak_a} onChange={e => setCorregirModal(m => ({ ...m, tiebreak_a: e.target.value }))} /></div>
+                  <div className="form-row" style={{ flex: 1 }}><label>{corregirModal.challenged?.nombre}</label><input type="number" min="0" value={corregirModal.tiebreak_b} onChange={e => setCorregirModal(m => ({ ...m, tiebreak_b: e.target.value }))} /></div>
+                </div>
+              </div>
+            )}
+            <div className="modal-actions">
+              <button className="btn" onClick={() => setCorregirModal(null)}>Cancelar</button>
+              <button className="btn btn-accept" onClick={saveCorregir}>Corregir</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Ajustar posición (admin) */}
+      {ajustarModal && (
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setAjustarModal(null) }}>
+          <div className="modal">
+            <h3>Ajustar posición</h3>
+            <p style={{ fontSize: 13, color: '#555', marginBottom: 12 }}>{ajustarModal.nombre} — actual #{ajustarModal.actual}</p>
+            <div className="form-row"><label>Nueva posición</label>
+              <input type="number" min="1" value={ajustarModal.nueva_pos} onChange={e => setAjustarModal(m => ({ ...m, nueva_pos: e.target.value }))} />
+            </div>
+            <div className="form-row"><label>Motivo (obligatorio)</label>
+              <input type="text" value={ajustarModal.motivo} onChange={e => setAjustarModal(m => ({ ...m, motivo: e.target.value }))} placeholder="Ej: corrección por error de carga" />
+            </div>
+            <div className="modal-actions">
+              <button className="btn" onClick={() => setAjustarModal(null)}>Cancelar</button>
+              <button className="btn btn-accept" onClick={saveAjustar}>Mover</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Ingresar resultado */}
       {resultModal && (
