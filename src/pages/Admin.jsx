@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { getAllPlayers, getChallenges, updatePlayer, updateChallenge, confirmSlotPayment, getCourts, reserveSlot, supabase } from '../lib/supabase'
 import { useSession } from '../components/SessionContext'
-import { notifyRankingUpdated, notifyReminder, notifyChallengeExpired, notifyPaymentConfirmed, notifyResult } from '../lib/notify'
+import { notifyReminder, notifyChallengeExpired, notifyPaymentConfirmed, notifyResult } from '../lib/notify'
 
 
 function courtDot(courtId) {
@@ -36,127 +36,10 @@ function getNextWednesday() {
 
 function ini(n, a) { return ((n?.[0] || '') + (a?.[0] || '')).toUpperCase() }
 
-function calcPlan(simPlayers, simChallenges, cfg, frozenIds = []) {
-  const sim = simPlayers.filter(p => p.activo && p.posicion != null)
-    .sort((a, b) => a.posicion - b.posicion)
-    .map(p => ({ ...p }))
-  const frozen = new Set(frozenIds)
-  const originalPos = {}
-  sim.forEach(p => { originalPos[p.id] = p.posicion })
-  const nm = p => `${p.nombre} ${p.apellido}`
-  const reasons = {}
-  const addReason = (id, txt) => { (reasons[id] = reasons[id] || []).push(txt) }
-  const notas = []
-
-  // ── COMPARTIDO: partidos pendientes, quién jugó y penalizaciones (lo usan ambos pasos) ──
-
-  const pending = simChallenges
-    .filter(c => c.status === 'completed' && !c.ranking_applied)
-    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
-  const jugaron = new Set()
-  pending.forEach(c => { jugaron.add(c.challenger_id); jugaron.add(c.challenged_id) })
-
-  const hasEverPlayedMap = {}
-  sim.forEach(p => {
-    hasEverPlayedMap[p.id] = (p.victorias || 0) + (p.derrotas || 0) > 0 || jugaron.has(p.id)
-  })
-
-  // Candidatos a congelar: no jugaron esta semana y NO son debutantes
-  const candidatosCongelar = sim
-    .filter(p => hasEverPlayedMap[p.id] && !jugaron.has(p.id))
-    .map(p => ({ id: p.id, nombre: nm(p) }))
-
-  // Penalizaciones por inactividad: se CALCULAN acá (independiente de posiciones); se APLICAN en el PASO 2
-  const penMap = {}
-  const nuevasSemanas = {}
-  const penaltyLog = []
-  for (const p of sim) {
-    if (!hasEverPlayedMap[p.id]) { nuevasSemanas[p.id] = 0; continue }
-    if (frozen.has(p.id)) {
-      nuevasSemanas[p.id] = p.semanas_inactivo || 0   // congela el contador (ni +1 ni 0)
-      continue                                        // no entra en penMap → no baja
-    }
-    const n = jugaron.has(p.id) ? 0 : (p.semanas_inactivo || 0) + 1
-    nuevasSemanas[p.id] = n
-    if (n === 1) notas.push(`${nm(p)} lleva 1 semana sin jugar (sin penalización aún).`)
-    if (n <= 1) continue
-    const pen = n === 2 ? 2 : 1
-    penMap[p.id] = pen
-    penaltyLog.push(`${nm(p)} (-${pen})`)
-    addReason(p.id, `penalización por inactividad: ${n} semanas sin jugar (-${pen})${p.lesionado ? ' [lesionado]' : ''}`)
-  }
-
-  // ── PASO 1: Resultados de partidos (AHORA PRIMERO — sobre las posiciones S27 sin inflar) ──
-
-  for (const c of pending) {
-    const ch = sim.find(p => p.id === c.challenger_id)
-    const cd = sim.find(p => p.id === c.challenged_id)
-    if (!ch || !cd) continue
-    if (c.ganador === 'challenger' && ch.posicion > cd.posicion) {
-      const wp = ch.posicion, lp = cd.posicion
-      for (const p of sim) {
-        if (p.posicion >= lp && p.posicion < wp) {
-          p.posicion += 1
-          addReason(p.id, `desplazado por el ascenso de ${nm(ch)}`)
-        }
-      }
-      ch.posicion = lp
-      addReason(ch.id, `le ganó a ${nm(cd)} (${c.score_a}–${c.score_b}${c.is_wo ? ' WO' : ''}) y toma el puesto #${lp}`)
-    } else if (c.ganador === 'challenged') {
-      notas.push(`${nm(cd)} defendió su posición #${cd.posicion} ante ${nm(ch)} (${c.score_a}–${c.score_b}${c.is_wo ? ' WO' : ''}) — sin cambios.`)
-    }
-  }
-
-  // Reordenar por la posición ya modificada por los resultados: el PASO 2 asume `sim` ordenado por posición.
-  sim.sort((a, b) => a.posicion - b.posicion)
-  // Posición al ENTRAR al paso de inactividad (post-resultado), para que el motivo "sube por
-  // penalizaciones" sea fiel y no atribuya a la inactividad un ascenso causado por el resultado.
-  const posEntradaInactividad = {}
-  sim.forEach((p, i) => { posEntradaInactividad[p.id] = i + 1 })
-
-  // ── PASO 2: Penalizaciones por inactividad (AHORA DESPUÉS — sobre el ranking ya con resultados) ──
-
-  const inactivos = sim.filter(p => (penMap[p.id] || 0) > 0)
-    .sort((a, b) => originalPos[b.id] - originalPos[a.id])
-  for (const inactivo of inactivos) {
-    let idx = sim.indexOf(inactivo)
-    for (let step = 0; step < penMap[inactivo.id]; step++) {
-      if (idx + 1 >= sim.length) break
-      const vecino = sim[idx + 1]
-      if ((penMap[vecino.id] || 0) > 0) break
-      if (!hasEverPlayedMap[vecino.id]) break
-      sim[idx] = vecino; sim[idx + 1] = inactivo; idx++
-    }
-  }
-
-  sim.forEach((p, i) => {
-    if (!penMap[p.id] && (i + 1) < posEntradaInactividad[p.id]) {
-      addReason(p.id, 'sube por penalizaciones de jugadores más arriba')
-    }
-    p.posicion = i + 1
-  })
-
-  sim.sort((a, b) => a.posicion - b.posicion)
-
-  const movements = sim
-    .filter(p => p.posicion !== originalPos[p.id])
-    .map(p => ({
-      nombre: nm(p),
-      desde: originalPos[p.id],
-      hasta: p.posicion,
-      delta: originalPos[p.id] - p.posicion,
-      motivo: (reasons[p.id] || ['movimiento por reacomodo']).join(' + ')
-    }))
-    .sort((a, b) => a.hasta - b.hasta)
-
-  return { cfg, sim, originalPos, pending, penaltyLog, movements, notas, nuevasSemanas, candidatosCongelar }
-}
-
 export default function Admin() {
   const [players, setPlayers] = useState([])
   const [challenges, setChallenges] = useState([])
   const [courts, setCourts] = useState([])
-  const [snapshots, setSnapshots] = useState([])
   const [loading, setLoading] = useState(true)
   const [notif, setNotif] = useState(null)
   const [activeTab, setActiveTab] = useState('acciones')
@@ -165,16 +48,10 @@ export default function Admin() {
   const [slotModal, setSlotModal] = useState(null)
   const [editSlotModal, setEditSlotModal] = useState(null)
   const [editPlayerModal, setEditPlayerModal] = useState(null)
-  const [editResultModal, setEditResultModal] = useState(null)
   const [historialModal, setHistorialModal] = useState(null)
   const [newChallengeModal, setNewChallengeModal] = useState(null)
   const [newPlayerModal, setNewPlayerModal] = useState(null)
-  const [confirmPublish, setConfirmPublish] = useState(false)
-  const [publishPreview, setPublishPreview] = useState(null) // plan calculado antes de publicar
-  const [frozenIds, setFrozenIds]   = useState([])           // congelados para publicar
-  const [freezeStep, setFreezeStep] = useState(null)         // paso intermedio: { candidatos } | null
   const [inviteShare, setInviteShare] = useState(null) // invitación pendiente de enviar por WA
-  const [publishPin, setPublishPin] = useState('')
   const [pinModal, setPinModal] = useState(null) // { action: fn }
   const [pinInput, setPinInput] = useState('')
   const { player: sessionPlayer } = useSession()
@@ -194,8 +71,6 @@ export default function Admin() {
       setPlayers(pl)
       setChallenges(ch)
       setCourts(co)
-      const { data: snaps } = await supabase.from('ranking_snapshots').select('*').order('id', { ascending: false }).limit(1)
-      setSnapshots(snaps || [])
       const { data: cfg } = await supabase.from('v2_config').select('*').eq('id', 1).single()
       setV2cfg(cfg); setCfgForm(cfg)
     } finally { setLoading(false) }
@@ -275,79 +150,6 @@ export default function Admin() {
     } catch (err) {
       ntf('Error al ejecutar la acción: ' + err.message, 'err')
     }
-  }
-
-  // Calcula el plan de publicación SIN tocar la BD: posiciones nuevas + explicación de cada movimiento
-  async function computePublishPlan(frozenIds = []) {
-    const { data: cfg } = await supabase.from('weekly_config').select('*').eq('id', 1).single()
-    return calcPlan(players, challenges, cfg, frozenIds)
-  }
-
-  async function publishRanking(plan) {
-    // v2: publicación manual deshabilitada — el ranking se aplica al instante y la
-    // foto semanal la hace el cron foto_jueves. Guarda para no re-mover el ranking.
-    ntf('v2: el ranking se actualiza automáticamente. La publicación manual está deshabilitada.', 'warn')
-    return
-    // eslint-disable-next-line no-unreachable
-    if (!sessionPlayer?.es_admin) {
-      ntf('Solo un administrador puede publicar el ranking.', 'err')
-      return
-    }
-    if (new Date().getDay() !== 4) {
-      ntf('El ranking solo se puede publicar los jueves.', 'err')
-      return
-    }
-    const { cfg, sim, originalPos, pending, penaltyLog, movements, notas, nuevasSemanas } = plan
-    const refreshed = sim
-    const nuevaSemana = (cfg?.semana || 0) + 1
-
-    const today = new Date()
-    const todayStr = today.toISOString().split('T')[0]
-    const nextWed = new Date(today)
-    const daysToWed = (3 - today.getDay() + 7) % 7 || 7
-    nextWed.setDate(today.getDate() + daysToWed)
-    const nextThu = new Date(today)
-    const daysToThu = (4 - today.getDay() + 7) % 7 || 7
-    nextThu.setDate(today.getDate() + daysToThu)
-
-    try {
-      const { error } = await supabase.rpc('publish_ranking', { payload: {
-        nueva_semana:     nuevaSemana,
-        fecha:            todayStr,
-        hora_publicacion: new Date().toISOString(),
-        fecha_cierre:     nextWed.toISOString().split('T')[0],
-        fecha_ranking:    nextThu.toISOString().split('T')[0],
-        historial_data:   refreshed.map(p => ({ id: p.id, nombre: p.nombre, apellido: p.apellido, posicion: p.posicion, victorias: p.victorias, derrotas: p.derrotas })),
-        movimientos:      { movements, notas, penaltyLog },
-        snapshot_data:    refreshed.map(p => ({ player_id: p.id, posicion: p.posicion, posicion_anterior: originalPos[p.id] })),
-        jugadores:        sim.map(p => ({ id: p.id, posicion: p.posicion, posicion_anterior: originalPos[p.id], semanas_inactivo: nuevasSemanas[p.id] ?? 0 })),
-        challenge_ids:    pending.map(c => c.id),
-      }})
-      if (error) { ntf('Error al publicar: ' + error.message + '. No se aplicaron cambios.', 'err'); return }
-
-      await notifyRankingUpdated(nuevaSemana, refreshed.slice(0, 5))
-      ntf(penaltyLog.length
-        ? `Ranking publicado. Penalizaciones por inactividad: ${penaltyLog.join(', ')}.`
-        : 'Ranking publicado. Sin penalizaciones por inactividad esta semana.')
-      load()
-
-    } catch (err) {
-      ntf('Error al publicar el ranking: ' + err.message, 'err')
-    }
-  }
-
-  async function undoRanking() {
-    // v2: deshabilitado junto con la publicación manual (ver publishRanking).
-    ntf('v2: la publicación manual y su reverso están deshabilitados.', 'warn')
-    return
-    // eslint-disable-next-line no-unreachable
-    if (!snapshots[0]) { ntf('No hay snapshot para deshacer.', 'warn'); return }
-    if (!confirm('¿Revertir el último ranking publicado? Se restaurarán las posiciones y los partidos volverán a estar pendientes.')) return
-    const snap = snapshots[0]
-    const { error } = await supabase.rpc('undo_ranking', { p_snapshot_id: snap.id })
-    if (error) { ntf('Error al revertir: ' + error.message, 'err'); return }
-    ntf('Ranking revertido. Posiciones y partidos restaurados.', 'warn')
-    load()
   }
 
   // ── Jugadores ────────────────────────────────────────────
@@ -586,38 +388,6 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
     } catch (err) { ntf(err.message, 'err') }
   }
 
-  async function saveEditResult() {
-    // v2: la edición cruda NO recalcula el ranking (updateChallenge directo) y
-    // corrompe el estado. Debe usarse Corregir (corregir_resultado), que revierte
-    // vía snapshot y reaplica. Deshabilitado hasta que la Etapa H entregue la
-    // herramienta de corrección admin buena.
-    ntf('v2: usar Corregir (recalcula el ranking). La edición cruda está deshabilitada.', 'warn')
-    return
-    // eslint-disable-next-line no-unreachable
-    const m = editResultModal
-    const sa = parseInt(m.score_a), sb = parseInt(m.score_b)
-    if (isNaN(sa) || isNaN(sb)) { ntf('Ingresa el resultado de ambos jugadores.', 'err'); return }
-    if (sa === sb) { ntf('No puede terminar empatado.', 'err'); return }
-    if (!m.slot_court) { ntf('Selecciona la cancha.', 'err'); return }
-    const finalDate = m.slot_day_edit || m.slot_day || null
-    if (!finalDate) { ntf('Ingresa la fecha del partido.', 'err'); return }
-    const isTB = (sa === 9 && sb === 8) || (sa === 8 && sb === 9)
-    const updates = { score_a: sa, score_b: sb, ganador: m.ganador, slot_court: m.slot_court, slot_day: finalDate }
-    if (m.slot_day_edit) updates.created_at = new Date(m.slot_day_edit + 'T12:00:00').toISOString()
-    if (isTB) {
-      const tba = parseInt(m.tiebreak_a), tbb = parseInt(m.tiebreak_b)
-      if (isNaN(tba) || isNaN(tbb)) { ntf('Ingresa el resultado del tiebreak.', 'err'); return }
-      if (Math.abs(tba - tbb) < 2) { ntf('Tiebreak: diferencia mínima de 2.', 'err'); return }
-      updates.tiebreak_a = tba; updates.tiebreak_b = tbb
-    } else {
-      updates.tiebreak_a = null; updates.tiebreak_b = null
-    }
-    await updateChallenge(m.id, updates)
-    setEditResultModal(null)
-    ntf('Resultado editado.')
-    load()
-  }
-
   // ── WO ──────────────────────────────────────────────────
   async function declareWO() {
     const m = woModal
@@ -690,7 +460,6 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
   if (loading) return <p style={{ color: '#888', fontSize: 13, padding: 24 }}>Cargando...</p>
 
   const tabs = ['acciones', 'desafíos', 'resultados', 'jugadores', 'config']
-  const esJueves = new Date().getDay() === 4
 
   return (
     <div>
@@ -734,18 +503,6 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
             </div>
           )}
           <div className="card" style={{ padding: '14px 16px' }}>
-
-            {/* ── Ranking ── */}
-            <div style={{ fontSize: 12, fontWeight: 500, color: '#6b6b6b', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 10 }}>Ranking</div>
-            {/* v2: el ranking se actualiza al instante con cada resultado (aplicar_resultado)
-                y la foto semanal la hará el cron foto_jueves. La publicación manual del jueves
-                queda deshabilitada en esta rama para no re-mover el ranking y corromperlo. */}
-            <div style={{ background: '#f5f4f0', border: '1px solid #e0dfd8', borderRadius: 10, padding: '12px 14px', fontSize: 12, color: '#6b6b6b', display: 'flex', gap: 8 }}>
-              <i className="ti ti-info-circle" style={{ flexShrink: 0, marginTop: 1 }} aria-hidden="true" />
-              <span>El ranking se actualiza automáticamente con cada resultado. La foto semanal se genera sola cada jueves. La publicación manual quedó deshabilitada en esta versión.</span>
-            </div>
-
-            <div style={{ borderTop: '1.5px solid #ecece4', margin: '18px 0' }} />
 
             {/* ── Crear ── */}
             <div style={{ fontSize: 12, fontWeight: 500, color: '#6b6b6b', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 10 }}>Crear</div>
@@ -1167,67 +924,6 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
         </div>
       )}
 
-      {/* Editar resultado */}
-      {editResultModal && (
-        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setEditResultModal(null) }}>
-          <div className="modal">
-            <h3>Editar resultado</h3>
-            <p style={{ fontSize: 13, color: '#555', marginBottom: 12 }}>{editResultModal.challenger?.nombre} vs {editResultModal.challenged?.nombre}</p>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <div className="form-row" style={{ flex: 1 }}>
-                <label>{editResultModal.challenger?.nombre}</label>
-                <input type="number" min="0" max="9" value={editResultModal.score_a} onChange={e => setEditResultModal(m => ({ ...m, score_a: e.target.value }))} />
-              </div>
-              <div className="form-row" style={{ flex: 1 }}>
-                <label>{editResultModal.challenged?.nombre}</label>
-                <input type="number" min="0" max="9" value={editResultModal.score_b} onChange={e => setEditResultModal(m => ({ ...m, score_b: e.target.value }))} />
-              </div>
-            </div>
-            {((String(editResultModal.score_a) === '9' && String(editResultModal.score_b) === '8') ||
-              (String(editResultModal.score_a) === '8' && String(editResultModal.score_b) === '9')) && (
-              <div style={{ background: '#FAEEDA', borderRadius: 8, padding: '8px 10px', marginBottom: 10 }}>
-                <div style={{ fontSize: 12, fontWeight: 500, color: '#633806', marginBottom: 8 }}>Tiebreak 9-8</div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <div className="form-row" style={{ flex: 1 }}>
-                    <label>{editResultModal.challenger?.nombre}</label>
-                    <input type="number" min="0" value={editResultModal.tiebreak_a || ''} onChange={e => setEditResultModal(m => ({ ...m, tiebreak_a: e.target.value }))} />
-                  </div>
-                  <div className="form-row" style={{ flex: 1 }}>
-                    <label>{editResultModal.challenged?.nombre}</label>
-                    <input type="number" min="0" value={editResultModal.tiebreak_b || ''} onChange={e => setEditResultModal(m => ({ ...m, tiebreak_b: e.target.value }))} />
-                  </div>
-                </div>
-              </div>
-            )}
-            <div className="form-row"><label>Ganador</label>
-              <select value={editResultModal.ganador} onChange={e => setEditResultModal(m => ({ ...m, ganador: e.target.value }))}>
-                <option value="challenger">{editResultModal.challenger?.nombre} {editResultModal.challenger?.apellido}</option>
-                <option value="challenged">{editResultModal.challenged?.nombre} {editResultModal.challenged?.apellido}</option>
-              </select>
-            </div>
-            <div className="form-row"><label>Cancha</label>
-              <select value={editResultModal.slot_court || ''} onChange={e => setEditResultModal(m => ({ ...m, slot_court: e.target.value }))}>
-                <option value="">Sin especificar</option>
-                {courts.map(c => <option key={c.id} value={c.id}>{c.nombre} ({c.surface})</option>)}
-              </select>
-              {(() => { const court = editResultModal.slot_court; if (!court) return null; const isHard = court === 'c3'; return (<span style={{ fontSize: 11, color: '#888', display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 }}><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: isHard ? '#60B8E0' : '#E8712A' }} />{isHard ? 'Cancha dura' : 'Arcilla'}</span>) })()}
-            </div>
-            <div className="form-row"><label>Fecha (dejar vacío para no cambiar)</label>
-              <input type="date" value={(() => {
-                const d = editResultModal.slot_day_edit || ''
-                return d
-              })()} 
-                onChange={e => setEditResultModal(m => ({ ...m, slot_day_edit: e.target.value }))} />
-              {editResultModal.slot_day && <div style={{ fontSize: 11, color: '#888', marginTop: 3 }}>Fecha actual: {fmtDate(editResultModal.slot_day)}</div>}
-            </div>
-            <div className="modal-actions">
-              <button className="btn" onClick={() => setEditResultModal(null)}>Cancelar</button>
-              <button className="btn btn-accept" onClick={saveEditResult}>Guardar</button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Asignar cancha */}
       {slotModal && (
         <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setSlotModal(null) }}>
@@ -1339,107 +1035,6 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
             <div className="modal-actions">
               <button className="btn" onClick={() => setNewChallengeModal(null)}>Cancelar</button>
               <button className="btn btn-accept" onClick={createChallengeAdmin}>Crear</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Vista previa de publicación */}
-      {freezeStep && (
-        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setFreezeStep(null) }}>
-          <div className="modal" style={{ maxHeight: '80vh', overflowY: 'auto' }}>
-            <h3>Perdonar inactividad</h3>
-
-            {freezeStep.candidatos.length === 0 ? (
-              <p style={{ fontSize: 13, color: '#888', background: '#f5f4f0', borderRadius: 8, padding: '10px 12px', marginBottom: 12 }}>
-                Nadie será penalizado esta semana.
-              </p>
-            ) : (
-              <>
-                <p style={{ fontSize: 13, color: '#555', marginBottom: 12 }}>
-                  Estos jugadores no jugaron esta semana y sumarán inactividad. ¿Perdonar a alguno?
-                </p>
-                <div style={{ marginBottom: 8 }}>
-                  {freezeStep.candidatos.map(c => (
-                    <label key={c.id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '8px 0', borderBottom: '0.5px solid #eee', cursor: 'pointer' }}>
-                      <input type="checkbox"
-                        checked={frozenIds.includes(c.id)}
-                        onChange={e => setFrozenIds(ids => e.target.checked ? [...ids, c.id] : ids.filter(x => x !== c.id))} />
-                      <span style={{ fontSize: 13 }}>{c.nombre}</span>
-                    </label>
-                  ))}
-                </div>
-              </>
-            )}
-
-            <div className="modal-actions">
-              <button className="btn" onClick={() => setFreezeStep(null)}>Cancelar</button>
-              <button className="btn btn-accept" onClick={async () => {
-                const plan = await computePublishPlan(frozenIds)   // 2ª pasada CON congelados
-                setFreezeStep(null)
-                setPublishPreview(plan)                            // → abre la preview existente
-              }}>Continuar</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {publishPreview && (
-        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setPublishPreview(null) }}>
-          <div className="modal" style={{ maxHeight: '80vh', overflowY: 'auto' }}>
-            <h3>Vista previa — Semana {publishPreview.cfg?.semana || '—'}</h3>
-            <p style={{ fontSize: 12, color: '#888', marginBottom: 12 }}>
-              Revisa los movimientos antes de publicar. Nada se aplica hasta que confirmes con tu PIN.
-            </p>
-
-            {publishPreview.movements.length === 0 ? (
-              <div style={{ fontSize: 13, color: '#888', background: '#f5f4f0', borderRadius: 8, padding: '10px 12px', marginBottom: 10 }}>
-                Sin cambios de posiciones esta semana.
-              </div>
-            ) : (
-              <div style={{ marginBottom: 10 }}>
-                <div style={{ fontSize: 12, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>
-                  Movimientos ({publishPreview.movements.length})
-                </div>
-                {publishPreview.movements.map((m, i) => (
-                  <div key={i} style={{ display: 'flex', gap: 8, padding: '7px 0', borderBottom: '0.5px solid #eee', alignItems: 'flex-start' }}>
-                    <span style={{ fontSize: 12, fontWeight: 500, color: m.delta > 0 ? '#3B6D11' : '#A32D2D', flexShrink: 0, width: 30 }}>
-                      {m.delta > 0 ? `↑${m.delta}` : `↓${Math.abs(m.delta)}`}
-                    </span>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 13, fontWeight: 500 }}>{m.nombre} <span style={{ color: '#888', fontWeight: 400 }}>#{m.desde} → #{m.hasta}</span></div>
-                      <div style={{ fontSize: 12, color: '#888', marginTop: 1 }}>{m.motivo}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {publishPreview.notas.length > 0 && (
-              <div style={{ marginBottom: 10 }}>
-                <div style={{ fontSize: 12, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>
-                  Notas
-                </div>
-                {publishPreview.notas.map((n, i) => (
-                  <div key={i} style={{ fontSize: 12, color: '#666', padding: '4px 0', display: 'flex', gap: 6 }}>
-                    <i className="ti ti-info-circle" style={{ fontSize: 14, flexShrink: 0, marginTop: 1, color: '#888' }} aria-hidden="true" />
-                    <span>{n}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div style={{ fontSize: 11, color: '#888', marginBottom: 12 }}>
-              {publishPreview.pending.length} partido{publishPreview.pending.length !== 1 ? 's' : ''} por aplicar · {publishPreview.penaltyLog.length} penalización{publishPreview.penaltyLog.length !== 1 ? 'es' : ''} por inactividad
-            </div>
-
-            <div className="modal-actions">
-              <button className="btn" onClick={() => setPublishPreview(null)}>Cancelar</button>
-              <button className="btn btn-accept" onClick={() => {
-                const plan = publishPreview
-                setPublishPreview(null)
-                confirmWithPin(() => publishRanking(plan))
-              }}>Confirmar y publicar</button>
             </div>
           </div>
         </div>
