@@ -134,7 +134,7 @@ export default function Auth() {
           <div style={S.logoIcon}>
             <i className="ti ti-tennis" style={{ fontSize: 20, color: '#0F6E56' }} aria-hidden="true" />
           </div>
-          <h1 style={{ fontSize: 20, fontWeight: 500 }}>Escalerilla BOA</h1>
+          <h1 style={{ fontSize: 20, fontWeight: 500 }}>Escalerilla 🎾</h1>
           <p style={{ fontSize: 13, color: '#888', marginTop: 3 }}>Club BOA · Santiago</p>
         </div>
 

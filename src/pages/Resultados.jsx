@@ -29,11 +29,12 @@ function courtDot(courtId) {
 
 // mm:ss a partir de milisegundos
 function fmtRemaining(ms) {
-  if (ms <= 0) return '0:00'
-  const total = Math.floor(ms / 1000)
-  const m = Math.floor(total / 60)
+  const total = Math.max(0, Math.floor(ms / 1000))
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
   const s = total % 60
-  return `${m}:${String(s).padStart(2, '0')}`
+  const p = (n) => String(n).padStart(2, '0')
+  return `${p(h)}:${p(m)}:${p(s)}`
 }
 
 export default function Resultados() {
@@ -80,7 +81,7 @@ export default function Resultados() {
 
   // Arma el texto compartible desde el jsonb de una foto de ranking_history
   function shareResumen(week) {
-    const lines = [`🎾 Escalerilla BOA — Ranking Semana ${week.semana}`, '', '🏆 Top 5']
+    const lines = [`Escalerilla 🎾 — Ranking Semana ${week.semana}`, '', '🏆 Top 5']
     ;(week.data || []).slice(0, 5).forEach(p => lines.push(`${p.posicion}. ${p.nombre} ${p.apellido}`))
     const movs = week.movimientos?.movements || []
     if (movs.length) {

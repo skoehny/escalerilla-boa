@@ -3,7 +3,7 @@ export default function Reglamento() {
     <div>
       <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 14 }}>
         <i className="ti ti-book" style={{ verticalAlign: -2, marginRight: 6, color: '#1D9E75' }} aria-hidden="true" />
-        Bases de la Escalerilla BOA
+        Bases de la Escalerilla 🎾
       </div>
 
       <Rule n="1" title="Sistema de ranking y desafíos">

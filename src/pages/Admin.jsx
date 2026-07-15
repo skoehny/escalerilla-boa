@@ -123,7 +123,7 @@ export default function Admin() {
       horas_wo_cancelacion: parseInt(cfgForm.horas_wo_cancelacion),
       max_puestos_desafio: parseInt(cfgForm.max_puestos_desafio),
     }
-    if (Object.values(upd).some(v => isNaN(v) || v < 0)) { ntf('Valores inválidos.', 'err'); return }
+    if (Object.values(upd).some(v => isNaN(v) || v < 1)) { ntf('Todos los campos deben ser enteros positivos (mayores a 0).', 'err'); return }
     try {
       const { error } = await supabase.from('v2_config').update(upd).eq('id', 1)
       if (error) throw error
@@ -747,7 +747,8 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
             ].map(([key, label]) => (
               <div className="form-row" key={key} style={{ marginBottom: 10 }}>
                 <label>{label}</label>
-                <input type="number" min="0" value={cfgForm[key] ?? ''} onChange={e => setCfgForm(f => ({ ...f, [key]: e.target.value }))} />
+                <input type="text" inputMode="numeric" value={cfgForm[key] ?? ''}
+                  onChange={e => setCfgForm(f => ({ ...f, [key]: e.target.value.replace(/[^0-9]/g, '') }))} />
               </div>
             ))}
             <button className="btn btn-accept" style={{ marginTop: 4 }} onClick={saveConfig}>Guardar configuración</button>

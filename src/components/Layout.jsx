@@ -102,7 +102,7 @@ export default function Layout() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 14px', height: 46 }}>
           <Link to="/" style={{ textDecoration: 'none', color: 'inherit', fontWeight: 500, fontSize: 16, display: 'flex', alignItems: 'center', gap: 7 }}>
             <i className="ti ti-tennis" style={{ fontSize: 18, color: '#1D9E75' }} aria-hidden="true" />
-            Escalerilla BOA
+            Escalerilla 🎾
           </Link>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {player?.lesionado && <span className="badge badge-red" style={{ fontSize: 10 }}>Lesionado</span>}
