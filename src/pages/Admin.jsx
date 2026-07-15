@@ -117,13 +117,16 @@ export default function Admin() {
   }
 
   async function saveConfig() {
-    const upd = {
+    const nums = {
       ventana_validacion_minutos: parseInt(cfgForm.ventana_validacion_minutos),
       dias_expiracion_desafio: parseInt(cfgForm.dias_expiracion_desafio),
       horas_wo_cancelacion: parseInt(cfgForm.horas_wo_cancelacion),
       max_puestos_desafio: parseInt(cfgForm.max_puestos_desafio),
     }
-    if (Object.values(upd).some(v => isNaN(v) || v < 1)) { ntf('Todos los campos deben ser enteros positivos (mayores a 0).', 'err'); return }
+    if (Object.values(nums).some(v => isNaN(v) || v < 1)) { ntf('Los valores numéricos deben ser enteros positivos (mayores a 0).', 'err'); return }
+    const nombre_club = (cfgForm.nombre_club || '').trim()
+    if (!nombre_club) { ntf('El nombre del club no puede estar vacío.', 'err'); return }
+    const upd = { ...nums, nombre_club }
     try {
       const { error } = await supabase.from('v2_config').update(upd).eq('id', 1)
       if (error) throw error
@@ -261,9 +264,9 @@ export default function Admin() {
         es_admin: false, victorias: 0, derrotas: 0,
       })
       if (error) throw error
-      const msg = `🎾 *Escalerilla BOA — Club BOA*
+      const msg = `*Escalerilla 🎾 — ${v2cfg?.nombre_club || 'Club BOA'}*
 
-Hola ${p.nombre}, te invitamos a unirte a la Escalerilla BOA.
+Hola ${p.nombre}, te invitamos a unirte a la Escalerilla 🎾.
 
 Ingresa en: https://escalerilla-boa.vercel.app
 
@@ -524,7 +527,7 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
                   const active = challenges.filter(c => c.status === 'accepted')
                   const completed = challenges.filter(c => c.status === 'completed' && c.ranking_applied === false)
                   const nm = p => `${p?.nombre || ''} ${p?.apellido || ''}`.trim()
-                  let msg = '🎾 *Escalerilla BOA — Semana activa*\n\n'
+                  let msg = '*Escalerilla 🎾 — Semana activa*\n\n'
                   if (pending.length) {
                     msg += '⏳ *Pendientes de aceptación:*\n'
                     pending.forEach(c => {
@@ -561,7 +564,7 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
               </button>
               <button style={{ gridColumn: '1 / -1', background: '#f3f2ed', border: '1px solid #d8d7d0', color: '#555', borderRadius: 10, padding: '14px 8px', fontSize: 14, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}
                 onClick={async () => {
-                  const msg = '🎾 Escalerilla BOA — Club BOA. Ingresa en: https://escalerilla-boa.vercel.app. Si ya eres jugador: entra con tu número de WhatsApp y completa tu perfil. Si quieres unirte: regístrate con tus datos y el admin te activará.'
+                  const msg = `Escalerilla 🎾 — ${v2cfg?.nombre_club || 'Club BOA'}. Ingresa en: https://escalerilla-boa.vercel.app. Si ya eres jugador: entra con tu número de WhatsApp y completa tu perfil. Si quieres unirte: regístrate con tus datos y el admin te activará.`
                   if (navigator.share) {
                     await navigator.share({ text: msg })
                   } else {
@@ -751,6 +754,10 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
                   onChange={e => setCfgForm(f => ({ ...f, [key]: e.target.value.replace(/[^0-9]/g, '') }))} />
               </div>
             ))}
+            <div className="form-row" style={{ marginBottom: 10 }}>
+              <label>Nombre del club</label>
+              <input type="text" value={cfgForm.nombre_club ?? ''} onChange={e => setCfgForm(f => ({ ...f, nombre_club: e.target.value }))} />
+            </div>
             <button className="btn btn-accept" style={{ marginTop: 4 }} onClick={saveConfig}>Guardar configuración</button>
             <p style={{ fontSize: 11, color: '#888', marginTop: 8 }}>Los cambios aplican a desafíos y resultados nuevos. Los desafíos ya creados conservan su fecha de expiración.</p>
           </div>

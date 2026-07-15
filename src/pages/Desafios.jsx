@@ -327,7 +327,7 @@ export default function Desafios() {
                   <button
                     style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8, border: '0.5px solid #1D9E75', background: '#E1F5EE', color: '#085041', fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}
                     onClick={() => {
-                      const msg = `🎾 Escalerilla BOA — Desafío\n\n${myActive.challenger.nombre} ${myActive.challenger.apellido} vs ${myActive.challenged.nombre} ${myActive.challenged.apellido}\n\nCoordinando día y hora\n\nhttps://escalerilla-boa.vercel.app/desafios`
+                      const msg = `Escalerilla 🎾 — Desafío\n\n${myActive.challenger.nombre} ${myActive.challenger.apellido} vs ${myActive.challenged.nombre} ${myActive.challenged.apellido}\n\nCoordinando día y hora\n\nhttps://escalerilla-boa.vercel.app/desafios`
                       if (navigator.share) { navigator.share({ text: msg }).catch(() => {}) }
                       else { navigator.clipboard.writeText(msg); ntf('Mensaje copiado.') }
                     }}>

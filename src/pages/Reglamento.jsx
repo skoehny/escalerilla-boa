@@ -1,9 +1,18 @@
+import { useState, useEffect } from 'react'
+import { supabase } from '../lib/supabase'
+import PelotaTenis from '../components/PelotaTenis'
+
 export default function Reglamento() {
+  const [clubName, setClubName] = useState('Club BOA')
+  useEffect(() => {
+    supabase.from('v2_config').select('nombre_club').eq('id', 1).single()
+      .then(({ data }) => { if (data?.nombre_club) setClubName(data.nombre_club) })
+  }, [])
   return (
     <div>
       <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 14 }}>
         <i className="ti ti-book" style={{ verticalAlign: -2, marginRight: 6, color: '#1D9E75' }} aria-hidden="true" />
-        Bases de la Escalerilla 🎾
+        Bases de la Escalerilla<PelotaTenis size={18} />
       </div>
 
       <Rule n="1" title="Sistema de ranking y desafíos">
@@ -16,7 +25,7 @@ export default function Reglamento() {
       </Rule>
 
       <Rule n="2" title="Normas de juego">
-        <p><strong>Sede:</strong> Todos los partidos deben jugarse en las canchas del Club BOA.</p>
+        <p><strong>Sede:</strong> Todos los partidos deben jugarse en las canchas del {clubName}.</p>
         <p style={{ marginTop: 8 }}><strong>Formato:</strong> Set largo a 9 games. El primero en llegar a 9 gana.</p>
         <p style={{ marginTop: 8 }}><strong>Empate 8-8:</strong> Se define con Tie-break a 7 puntos (con diferencia mínima de 2).</p>
         <p style={{ marginTop: 8 }}><strong>Resultado 9-8:</strong> Se considera tie-break y debe registrarse el marcador del tie-break.</p>
