@@ -391,31 +391,19 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
   // ── WO ──────────────────────────────────────────────────
   async function declareWO() {
     const m = woModal
-    const ch = players.find(p => p.id === m.challenger_id)
-    const cd = players.find(p => p.id === m.challenged_id)
-    const loser = m.wo_loser === 'challenger' ? ch : cd
-    const winner = m.wo_loser === 'challenger' ? cd : ch
+    // El ganador es el que NO pierde; marcar_wo (override admin) le da el 9-0 y
+    // aplica al ranking (loguea 'por WO', mueve posiciones, cuenta stats).
+    const winnerId = m.wo_loser === 'challenger' ? m.challenged_id : m.challenger_id
+    const winner = players.find(p => p.id === winnerId)
     try {
-      await updateChallenge(m.id, {
-        status: 'completed', score_a: m.wo_loser === 'challenger' ? 0 : 9,
-        score_b: m.wo_loser === 'challenger' ? 9 : 0,
-        ganador: m.wo_loser === 'challenger' ? 'challenged' : 'challenger',
-        is_wo: true,
+      const { error } = await supabase.rpc('marcar_wo', {
+        p_challenge_id: m.id, p_marker_id: winnerId, p_admin_override: true,
       })
-      if (winner) await updatePlayer(winner.id, { victorias: (winner.victorias || 0) + 1 })
-      if (loser) await updatePlayer(loser.id, { derrotas: (loser.derrotas || 0) + 1 })
-      // Mover ranking
-      if (m.wo_loser === 'challenged' && ch && cd && ch.posicion > cd.posicion) {
-        const wp = ch.posicion, lp = cd.posicion
-        for (const p of players) {
-          if (p.posicion >= lp && p.posicion < wp) await updatePlayer(p.id, { posicion_anterior: p.posicion, posicion: p.posicion + 1 })
-        }
-        await updatePlayer(ch.id, { posicion_anterior: ch.posicion, posicion: lp })
-      }
+      if (error) throw error
       setWoModal(null)
-      ntf(`W.O. declarado. ${winner?.nombre} gana 9-0.`)
+      ntf(`W.O. declarado. ${winner?.nombre || 'El ganador'} gana 9-0. Ranking actualizado.`)
       load()
-    } catch (err) { ntf(err.message, 'err') }
+    } catch (err) { ntf(err.message || 'No se pudo declarar el WO.', 'err') }
   }
 
   async function cancelMatch() {
