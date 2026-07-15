@@ -32,33 +32,35 @@ export default function Reglamento() {
       </Rule>
 
       <Rule n="4" title="Inactividad">
-        <p>La inactividad aplica a todos los jugadores por igual, estén lesionados o no. Lo único que cuenta es haber jugado y registrado un partido.</p>
-        <p style={{ marginTop: 8 }}><strong>2 semanas sin jugar:</strong> baja <strong>2 posiciones</strong>.</p>
-        <p style={{ marginTop: 8 }}><strong>Cada semana adicional</strong> sin jugar: baja <strong>1 posición</strong> más.</p>
-        <p style={{ marginTop: 8 }}>La intención de jugar (haber enviado o aceptado un desafío) <strong>no exime</strong> de la penalización: si el partido no se jugó, se aplica el descuento igual.</p>
-        <p style={{ marginTop: 8 }}><strong>Única excepción:</strong> si en la primera semana penalizable no tenías ningún rival disponible por encima (todos lesionados u ocupados en otro partido), esa semana no se penaliza. Desde la siguiente, la penalización aplica normalmente.</p>
-        <p style={{ marginTop: 8 }}><strong>Para recuperarse:</strong> la penalización se detiene cuando el jugador juega y registra el resultado de su partido.</p>
+        <p>El reloj de inactividad cuenta los días sin jugar desde tu último partido registrado.</p>
+        <p style={{ marginTop: 8 }}><strong>Pausa:</strong> mientras tengas un desafío activo (pendiente o aceptado) el reloj se pausa; esos días no se cuentan. Al expirar o cancelarse sin jugar, el reloj se reanuda donde iba.</p>
+        <p style={{ marginTop: 8 }}><strong>Penalizaciones</strong> (por días efectivos sin jugar):</p>
+        <p style={{ marginTop: 4 }}>• <strong>14 días:</strong> bajas <strong>2 posiciones</strong>.</p>
+        <p style={{ marginTop: 4 }}>• <strong>21 días:</strong> bajas <strong>1 posición</strong> más.</p>
+        <p style={{ marginTop: 4 }}>• <strong>28 días:</strong> bajas <strong>1 posición</strong> más y quedas marcado como <strong>lesionado</strong>.</p>
+        <p style={{ marginTop: 4 }}>• Cada 7 días adicionales: <strong>1 posición</strong> más.</p>
+        <p style={{ marginTop: 8 }}>Ningún jugador cae por debajo de otro que también esté inactivo (14+ días) ni de un debutante.</p>
+        <p style={{ marginTop: 8 }}><strong>Debutantes:</strong> no tienen reloj hasta jugar su primer partido; recién ahí empieza a contar.</p>
+        <p style={{ marginTop: 8 }}><strong>Para recuperarse:</strong> el reloj se reinicia cuando juegas y registras un resultado.</p>
       </Rule>
 
       <Rule n="5" title="Cancelación de desafíos">
-        <p>Un desafío puede cancelarse en cualquier momento antes de jugarse. Al cancelar, se debe indicar el <strong>motivo</strong>: sin respuesta del rival, no se pudo acordar horario, lesión, acuerdo mutuo, u otro.</p>
-        <p style={{ marginTop: 8 }}>Al cancelar un desafío en la semana en curso, <strong>ambos jugadores quedan libres</strong> para enviar o recibir un nuevo desafío esa misma semana.</p>
-        <p style={{ marginTop: 8 }}>La cancelación no implica penalización por sí misma, pero si ninguno de los dos jugó esa semana, corre la regla de inactividad normalmente.</p>
+        <p>Un desafío puede cancelarse en cualquier momento antes de jugarse, indicando el <strong>motivo</strong>. Al cancelar, ambos jugadores quedan libres de inmediato para enviar o recibir un nuevo desafío.</p>
+        <p style={{ marginTop: 8 }}><strong>Cancelación tardía:</strong> si cancelas un desafío con cancha reservada a menos de 24 horas del horario del partido, el <strong>jugador afectado</strong> (el que no canceló) puede marcarte un <strong>WO</strong> (ver regla 6).</p>
+        <p style={{ marginTop: 8 }}>La cancelación no penaliza por sí misma, pero el reloj de inactividad sigue corriendo si no juegas.</p>
       </Rule>
 
       <Rule n="6" title="W.O. (Walkover)">
-        <p>Se declara W.O. en los siguientes casos:</p>
-        <p style={{ marginTop: 8 }}>• El partido se cancela con <strong>menos de 24 horas</strong> de anticipación sin acuerdo mutuo.</p>
-        <p style={{ marginTop: 8 }}>• Si ambos jugadores acuerdan cancelar con menos de 24 horas, <strong>no hay W.O.</strong> — el partido se cancela limpio.</p>
-        <p style={{ marginTop: 8 }}><strong>Resultado W.O.:</strong> El responsable pierde <strong>9-0</strong> y el ranking se mueve como si se hubiera jugado normalmente.</p>
-        <p style={{ marginTop: 8 }}>Cancelaciones con <strong>más de 24 horas</strong>: se reagenda (si ambos siguen en rango) o se cancela limpio.</p>
+        <p>El WO se comporta como un resultado normal: mueve el ranking y cuenta para tus estadísticas. El responsable pierde <strong>9-0</strong>.</p>
+        <p style={{ marginTop: 8 }}><strong>Sin cancha reservada:</strong> en un desafío pendiente o aceptado sin cancha, cualquiera de los dos jugadores puede marcar WO (gana 9-0 quien lo marca).</p>
+        <p style={{ marginTop: 8 }}><strong>Por cancelación tardía:</strong> si el rival canceló un desafío con cancha reservada a menos de 24 horas del partido, el jugador afectado marca el WO a su favor.</p>
+        <p style={{ marginTop: 8 }}>Todo WO entra al flujo normal: durante las <strong>24 horas</strong> siguientes el rival puede validarlo o corregirlo; pasada la ventana, solo el administrador.</p>
       </Rule>
 
       <Rule n="7" title="Lesiones">
-        <p>Cada jugador puede marcarse como lesionado desde su perfil. Mientras esté lesionado:</p>
-        <p style={{ marginTop: 8 }}>• No puede recibir desafíos.</p>
-        <p style={{ marginTop: 8 }}>• <strong>Sigue acumulando inactividad</strong> — la lesión no exime de la penalidad por no jugar.</p>
-        <p style={{ marginTop: 8 }}>El mismo jugador puede darse de alta desde su perfil cuando se recupere.</p>
+        <p>Un jugador lesionado <strong>no puede ser desafiado</strong>. El estado de lesión puede marcarlo el propio jugador desde su perfil, o se activa automáticamente a los <strong>28 días</strong> de inactividad.</p>
+        <p style={{ marginTop: 8 }}><strong>Volver a la actividad:</strong> crear un desafío te reactiva automáticamente (te quita el estado de lesionado). También puedes darte de alta desde tu perfil.</p>
+        <p style={{ marginTop: 8 }}>Mientras estés inactivo, el reloj de inactividad sigue corriendo aunque estés marcado como lesionado.</p>
       </Rule>
 
       <Rule n="8" title="Registro de resultados">

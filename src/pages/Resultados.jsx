@@ -115,7 +115,8 @@ export default function Resultados() {
       && isMyMatch(c)
   }
   function canValidate(c) {
-    return isActionable(c) && withinWindow(c)
+    // Anti-auto-validación: el que anotó no valida (solo corrige); valida el rival.
+    return isActionable(c) && withinWindow(c) && c.anotado_por !== player?.id
   }
   function canCorregir(c) {
     return isActionable(c) && withinWindow(c)
@@ -448,7 +449,7 @@ export default function Resultados() {
                   {/* Panel accionable: resultado aplicado, no validado, último y soy jugador */}
                   {actionable && !isEditing && (
                     <div style={{ background: '#E1F5EE', borderRadius: 8, padding: '10px 12px', margin: '2px 0 8px' }}>
-                      {canValidate(c) ? (
+                      {withinWindow(c) ? (
                         <>
                           <div style={{ fontSize: 12, color: '#0F6E56', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
                             <i className="ti ti-clock" aria-hidden="true" />
@@ -457,12 +458,19 @@ export default function Resultados() {
                               : <>Puedes validar o corregir este resultado</>}
                           </div>
                           <div style={{ display: 'flex', gap: 8 }}>
-                            <button className="btn btn-accept" style={{ fontSize: 12, padding: '4px 12px' }} onClick={() => validateResult(c)}>Validar ✓</button>
+                            {canValidate(c) && (
+                              <button className="btn btn-accept" style={{ fontSize: 12, padding: '4px 12px' }} onClick={() => validateResult(c)}>Validar ✓</button>
+                            )}
                             <button className="btn" style={{ fontSize: 12, padding: '4px 12px' }}
                               onClick={() => { setEditingId(c.id); setEditScores({ [c.id + '_a']: c.score_a, [c.id + '_b']: c.score_b }); setEditTiebreaks({ [c.id + '_a']: c.tiebreak_a || '', [c.id + '_b']: c.tiebreak_b || '' }) }}>
                               Corregir
                             </button>
                           </div>
+                          {!canValidate(c) && (
+                            <div style={{ fontSize: 11, color: '#8a6d1a', marginTop: 6 }}>
+                              Anotaste este resultado: solo tu rival puede validarlo. Puedes corregirlo si hay un error.
+                            </div>
+                          )}
                         </>
                       ) : (
                         <div style={{ fontSize: 12, color: '#8a6d1a', display: 'flex', alignItems: 'center', gap: 6 }}>

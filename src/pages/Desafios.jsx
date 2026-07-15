@@ -43,14 +43,16 @@ export default function Desafios() {
   const [cancelModal, setCancelModal] = useState(null)  // challenge a cancelar
   const [cancelReason, setCancelReason] = useState('')
   const [cancelOther, setCancelOther] = useState('')
+  const [v2cfg, setV2cfg] = useState(null)
 
   useEffect(() => { load() }, [])
 
   async function load() {
     try {
-      const [data, co] = await Promise.all([getChallenges(), getCourts()])
+      const [data, co, { data: cfg }] = await Promise.all([getChallenges(), getCourts(), supabase.from('v2_config').select('*').eq('id', 1).single()])
       setChallenges(data)
       setCourts(co)
+      setV2cfg(cfg)
     } finally { setLoading(false) }
   }
 
@@ -136,10 +138,34 @@ export default function Desafios() {
 
   async function cancelChallenge(c) {
     const motivo = cancelReason === 'other' ? (cancelOther.trim() || 'Otro') : cancelReason
-    await updateChallenge(c.id, { status: 'expired', cancel_reason: motivo })
+    await updateChallenge(c.id, {
+      status: 'expired', cancel_reason: motivo,
+      cancelled_at: new Date().toISOString(), cancelled_by: player.id,
+    })
     ntf('Desafío cancelado.', 'warn')
     setCancelModal(null); setCancelReason(''); setCancelOther('')
     load()
+  }
+
+  // WO: la RPC marcar_wo es la ley (distingue sin-slot vs cancelación tardía,
+  // valida quién puede marcarlo, mueve el ranking y loguea 'por WO').
+  async function markWO(c) {
+    const rival = c.challenger_id === player.id ? c.challenged : c.challenger
+    if (!window.confirm(`¿Marcar WO contra ${rival?.nombre} ${rival?.apellido}? Ganás 9-0 y el ranking se actualiza al instante. El rival podrá corregir o disputar dentro de las próximas 24 horas.`)) return
+    try {
+      const { error } = await supabase.rpc('marcar_wo', { p_challenge_id: c.id, p_marker_id: player.id })
+      if (error) throw error
+      ntf('WO marcado. Ranking actualizado. Tu rival puede corregirlo dentro de la ventana.')
+      load()
+    } catch (err) { ntf(err.message || 'No se pudo marcar el WO.', 'err') }
+  }
+
+  // Cancelación tardía (< horas_wo_cancelacion del slot) — habilita WO al afectado
+  function isLateCancellation(c) {
+    if (!c.cancelled_at || !c.slot_day || !c.slot_hour) return false
+    const horas = v2cfg?.horas_wo_cancelacion ?? 24
+    const slotTs = new Date(`${c.slot_day}T${c.slot_hour}`).getTime()
+    return new Date(c.cancelled_at).getTime() > slotTs - horas * 3600000
   }
 
   const received = challenges.filter(c => c.challenged_id === player?.id && c.status === 'pending')
@@ -150,6 +176,16 @@ export default function Desafios() {
   const mySent = challenges.filter(c => c.challenger_id === player?.id && c.status === 'pending')
   const allActive = challenges.filter(c => c.status === 'pending' || c.status === 'accepted')
   const playedThisWeek = challenges.filter(c => c.status === 'completed' && c.ranking_applied === false)
+  // WO sin slot: desafío activo sin cancha reservada (lo puede marcar cualquiera de los dos)
+  const woSinSlot = (c) => (c.status === 'pending' || c.status === 'accepted') && !(c.slot_day && c.slot_court && c.slot_hour)
+  // WO por cancelación tardía: cancelado con slot, tardío, donde soy el afectado (no cancelé yo)
+  const woCancelaciones = challenges.filter(c =>
+    c.status === 'expired' && c.cancelled_at && !c.is_wo && c.slot_day && c.slot_hour &&
+    (c.challenger_id === player?.id || c.challenged_id === player?.id) &&
+    c.cancelled_by !== player?.id &&
+    new Date(c.cancelled_at).getTime() > Date.now() - 7 * 24 * 3600000 &&
+    isLateCancellation(c)
+  )
 
   if (loading) return <p style={{ color: '#888', fontSize: 13, padding: 24 }}>Cargando...</p>
 
@@ -165,8 +201,30 @@ export default function Desafios() {
       )}
 
       <p style={{ fontSize: 12, color: '#888', marginBottom: 10 }}>
-        <i className="ti ti-info-circle" style={{ verticalAlign: -2 }} aria-hidden="true" /> 48 h para aceptar · máx. 2 rechazos/mes · 1 partido/semana · lesionados no pueden ser desafiados
+        <i className="ti ti-info-circle" style={{ verticalAlign: -2 }} aria-hidden="true" /> 48 h para aceptar · máx. 2 rechazos/mes · 1 desafío activo · lesionados no pueden ser desafiados
       </p>
+
+      {woCancelaciones.length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          <div className="section-title">Cancelación tardía — puedes marcar WO</div>
+          {woCancelaciones.map(c => {
+            const canceller = c.cancelled_by === c.challenger_id ? c.challenger : c.challenged
+            return (
+              <div key={c.id} className="card" style={{ borderColor: '#E8A13A' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 500 }}>{canceller?.nombre} {canceller?.apellido} canceló tarde</div>
+                    <div style={{ fontSize: 12, color: '#888' }}>Cancha {c.slot_court} · {fmtDate(c.slot_day)} {c.slot_hour} · a menos de {v2cfg?.horas_wo_cancelacion ?? 24} h del partido</div>
+                  </div>
+                  <button className="btn btn-warn" style={{ fontSize: 12, padding: '4px 10px', flexShrink: 0 }} onClick={() => markWO(c)}>
+                    Marcar WO
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
 
       {mySent.length > 0 && (
         <div style={{ marginBottom: 14 }}>
@@ -189,6 +247,9 @@ export default function Desafios() {
                     onClick={() => { setPlayedModal({ id: c.id, challenger: c.challenger, challenged: c.challenged }); setPlayedData({ court: courts[0]?.id || '', day: new Date().toLocaleDateString('en-CA'), hour: '18:00', sa: '', sb: '', tba: '', tbb: '' }); setPlayedError('') }}>
                     Jugamos
                   </button>
+                  {woSinSlot(c) && (
+                    <button className="btn btn-warn" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => markWO(c)}>WO</button>
+                  )}
                   <button className="btn btn-reject" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => { setCancelModal(c); setCancelReason(''); setCancelOther('') }}>
                     Cancelar
                   </button>
@@ -218,6 +279,7 @@ export default function Desafios() {
                     #{c.challenger?.posicion} vs #{c.challenged?.posicion} · 48 h para responder
                   </div>
                 </div>
+                {woSinSlot(c) && <button className="btn btn-warn" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => markWO(c)}>WO</button>}
                 <button className="btn btn-reject" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => reject(c)}>Rechazar</button>
                 <button className="btn btn-accept" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => accept(c)}>Aceptar</button>
               </div>
@@ -277,6 +339,11 @@ export default function Desafios() {
                     onClick={() => { setCancelModal(myActive); setCancelReason(''); setCancelOther('') }}>
                     Cancelar desafío
                   </button>
+                  {woSinSlot(myActive) && (
+                    <button className="btn btn-warn" style={{ fontSize: 12, padding: '6px 12px' }} onClick={() => markWO(myActive)}>
+                      Marcar WO
+                    </button>
+                  )}
                 </div>
               </div>
             )}
