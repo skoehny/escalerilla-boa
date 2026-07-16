@@ -65,6 +65,7 @@ export default function Admin() {
   const [v2cfg, setV2cfg] = useState(null)
   const [cfgForm, setCfgForm] = useState(null)
   const [cfgError, setCfgError] = useState(null)
+  const [relojResult, setRelojResult] = useState(null)
 
   useEffect(() => { load() }, [])
 
@@ -141,6 +142,22 @@ export default function Admin() {
       setV2cfg({ ...v2cfg, ...upd })
       ntf('Configuración guardada.')
     } catch (err) { ntf(err.message || 'No se pudo guardar.', 'err') }
+  }
+
+  // ── Mantenimiento: correr el reloj de inactividad a demanda ──
+  // Llama cron_diario() (SIN force): si ya corrió hoy, no hace nada.
+  async function runRelojAhora() {
+    try {
+      const { data, error } = await supabase.rpc('cron_diario')
+      if (error) throw error
+      setRelojResult(data)
+      if (data?.skipped === 'ya_corrio_hoy') {
+        ntf(`El reloj ya corrió hoy (${data.fecha}).`, 'warn')
+      } else {
+        ntf('Reloj de inactividad corrido.')
+        load()
+      }
+    } catch (err) { ntf(err.message || 'No se pudo correr el reloj.', 'err') }
   }
 
   // ── Ranking ──────────────────────────────────────────────
@@ -593,6 +610,38 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
                 <i className="ti ti-user-plus" style={{ verticalAlign: -2, marginRight: 6 }} aria-hidden="true" />Invitar jugadores
               </button>
             </div>
+
+            <div style={{ borderTop: '1.5px solid #ecece4', margin: '18px 0' }} />
+
+            {/* ── Mantenimiento ── */}
+            <div style={{ fontSize: 12, fontWeight: 500, color: '#6b6b6b', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 10 }}>Mantenimiento</div>
+            <button style={{ width: '100%', background: '#eef1f7', border: '1px solid #b9c6e0', color: '#274b8a', borderRadius: 10, padding: '14px 8px', fontSize: 14, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}
+              onClick={() => confirmWithPin(runRelojAhora)}>
+              <i className="ti ti-clock-play" style={{ verticalAlign: -2, marginRight: 6 }} aria-hidden="true" />Correr reloj de inactividad ahora
+            </button>
+            <p style={{ fontSize: 11, color: '#888', marginTop: 6 }}>
+              Procesa la inactividad del día: expira desafíos vencidos, suma un día a los inactivos y aplica penalizaciones al cruzar umbrales (14/21/28…). Si ya corrió hoy, no hace nada.
+            </p>
+            {relojResult && (
+              <div className="card" style={{ padding: 12, marginTop: 8, fontSize: 12 }}>
+                {relojResult.skipped === 'ya_corrio_hoy' ? (
+                  <div style={{ color: '#9c610f' }}>Ya había corrido hoy ({relojResult.fecha}). Sin cambios.</div>
+                ) : (
+                  <>
+                    <div style={{ fontWeight: 600, marginBottom: 4 }}>Reloj corrido — {relojResult.fecha}</div>
+                    <div style={{ color: '#555' }}>Desafíos expirados: {relojResult.expirados ?? 0} · Penalizados: {relojResult.penalizados ?? 0} · Lesionados nuevos: {relojResult.lesionados_nuevos ?? 0}</div>
+                    {Array.isArray(relojResult.movimientos) && relojResult.movimientos.length > 0 ? (
+                      <ul style={{ margin: '6px 0 0', paddingLeft: 18, color: '#333' }}>
+                        {relojResult.movimientos.map((m, i) => {
+                          const p = players.find(x => x.id === m.id)
+                          return <li key={i}>{p ? `${p.nombre} ${p.apellido}` : m.id}: #{m.desde} → #{m.hasta}</li>
+                        })}
+                      </ul>
+                    ) : <div style={{ color: '#888', marginTop: 4 }}>Sin movimientos de ranking.</div>}
+                  </>
+                )}
+              </div>
+            )}
 
           </div>
 
