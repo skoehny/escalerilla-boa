@@ -64,6 +64,7 @@ export default function Admin() {
   const [ajustarModal, setAjustarModal] = useState(null)   // ajustar posición (admin)
   const [v2cfg, setV2cfg] = useState(null)
   const [cfgForm, setCfgForm] = useState(null)
+  const [cfgError, setCfgError] = useState(null)
 
   useEffect(() => { load() }, [])
 
@@ -73,7 +74,13 @@ export default function Admin() {
       setPlayers(pl)
       setChallenges(ch)
       setCourts(co)
-      const { data: cfg } = await supabase.from('v2_config').select('*').eq('id', 1).single()
+      const { data: cfg, error: cfgErr } = await supabase.from('v2_config').select('*').eq('id', 1).single()
+      if (cfgErr) {
+        setCfgError(cfgErr.message)
+        ntf('No se pudo cargar la configuración v2: ' + cfgErr.message, 'err')
+      } else {
+        setCfgError(null)
+      }
       setV2cfg(cfg); setCfgForm(cfg)
     } finally { setLoading(false) }
   }
@@ -748,7 +755,7 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
       )}
 
       {/* CONFIGURACIÓN v2 */}
-      {activeTab === 'config' && cfgForm && (
+      {activeTab === 'config' && (cfgForm ? (
         <div>
           <div style={{ fontSize: 12, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>Configuración v2</div>
           <div className="card" style={{ padding: '14px 16px' }}>
@@ -781,7 +788,17 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
             <p style={{ fontSize: 11, color: '#888', marginTop: 8 }}>Los cambios aplican a desafíos y resultados nuevos. Los desafíos ya creados conservan su fecha de expiración.</p>
           </div>
         </div>
-      )}
+      ) : (
+        <div className="card" style={{ padding: 16 }}>
+          <div style={{ fontSize: 13, color: '#b00020', marginBottom: 8 }}>
+            No se pudo cargar la configuración v2{cfgError ? `: ${cfgError}` : '.'}
+          </div>
+          <div style={{ fontSize: 12, color: '#888', marginBottom: 10 }}>
+            Revisá que la tabla <code>v2_config</code> sea accesible (permisos/RLS) y reintentá.
+          </div>
+          <button className="btn" onClick={load}>Reintentar</button>
+        </div>
+      ))}
 
       {/* ── MODALS ── */}
 
