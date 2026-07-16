@@ -14,6 +14,7 @@ Archivos (ejecutar en este orden):
 |---|---|---|
 | — | `cutover_03` **FASE 0** | Pre-flight: confirma esquema base preexistente |
 | 0 | `cutover_00_prereqs.sql` | 2 funciones NO versionadas (idempotentes) |
+| 0b | `cutover_00b_prod_base.sql` | **Base que falta en PROD**: v2_config + 3 columnas + trigger |
 | 1 | `cutover_01_migraciones.sql` | Migraciones 010–024 + agenda los 3 crons |
 | 2 | `cutover_02_inicializacion.sql` | Config + saneo + wildcard + estreno de foto |
 | ✓ | `cutover_03_verificacion.sql` | SELECTs de verificación por fase |
@@ -41,18 +42,34 @@ Archivos (ejecutar en este orden):
 Conclusión: durante toda la Fase 1 (base migrada, frontend v1 aún desplegado) la
 app vieja funciona igual. Recién en la Fase 2 se mergea `main`.
 
-## 🛑 Gap detectado (por eso existe `cutover_00`)
+## 🛑 Gaps detectados en PROD (por eso existen `cutover_00` y `cutover_00b`)
 
-Dos funciones que el esquema v2 **necesita** NO están versionadas en `db/sql/`
-(se crearon a mano en la base de prueba durante el desarrollo):
+El respaldo de prod (2026-07-16) mostró que su esquema **no coincide** con el de
+prueba. Hay que cerrar dos grupos de faltantes ANTES de `cutover_01`:
 
-- **`recalcular_stats()`** — la llama `aplicar_resultado`. Sin ella, **toda
-  aplicación de resultado falla**.
+**Funciones no versionadas — `cutover_00_prereqs.sql`:**
+- **`recalcular_stats()`** — la llama `aplicar_resultado`. *(Prod YA la tiene; el
+  `CREATE OR REPLACE` es inocuo.)*
 - **`aplicar_pendientes()`** — la ejecuta el cron `v2_aplicar_pendientes` (*/5).
-  Sin ella, ese cron **falla cada 5 minutos**.
+  **Prod NO la tiene** → sin ella ese cron falla cada 5 min.
 
-`cutover_00_prereqs.sql` las crea de forma idempotente (`CREATE OR REPLACE`). Si
-prod ya las tenía, no hace daño. **La FASE 0 del pre-flight confirma si faltaban.**
+**Base de esquema que falta en PROD — `cutover_00b_prod_base.sql`** (idempotente):
+- **Tabla `v2_config` inexistente.** Todas las migraciones 011+ la ALTERan y
+  `UPDATE … WHERE id=1`. Sin ella, **el cutover muere en la migración 011**. `00b`
+  la crea con las columnas base + fila `id=1` (ventana=90, fechas en NULL;
+  `cutover_02` fija la config definitiva: ventana=1440, etc.).
+- **`challenges` sin `disputado`, `resultado_ingresado_at`, `disputa_motivo`**
+  (columnas pre-010 que ninguna migración crea; las usan `aplicar_pendientes` y el
+  trigger). `00b` las agrega.
+- **Sin trigger `trg_stamp_resultado`** ni su función `stamp_resultado_ingresado()`
+  (prod tiene 0 triggers). Sin él, `resultado_ingresado_at` nunca se estampa → se
+  rompen la ventana de corrección y el cron de pendientes. `00b` los crea.
+
+Ya presente y OK en prod: `players` con todas las columnas base; `weekly_config`
+(semana, fechas, publicado_manual); `ranking_history` con índice único en `semana`.
+
+**La FASE 0 del pre-flight detecta exactamente estos faltantes** (0.1 la tabla
+`v2_config`, 0.2 las 3 columnas de challenges, 0.3 el trigger).
 
 ---
 
@@ -71,15 +88,19 @@ prod ya las tenía, no hace daño. **La FASE 0 del pre-flight confirma si faltab
    **`pg_cron`** (si no está). `cutover_01` hace `CREATE EXTENSION IF NOT EXISTS
    pg_cron`, pero en Supabase suele requerir el toggle del dashboard primero.
 3. **Pre-flight.** Ejecutar la **FASE 0** de `cutover_03_verificacion.sql`
-   (secciones 0.1–0.5). Esperado:
-   - 0.1: las 6 tablas `ok` (excepto `ranking_log`, que la crea la 016 — puede
-     figurar `FALTA` ANTES de cutover_01; el resto DEBE estar).
-   - 0.2: **todas** las columnas base `ok`. Si alguna dice `FALTA ***`, prod no
-     tiene el esquema pre-010 → **DETENER** y revisar (el cutover estaría incompleto).
-   - 0.3: `trg_stamp_resultado` presente (1 fila). Si falta, `resultado_ingresado_at`
-     no se estampa y se rompen la ventana de corrección y el cron de pendientes → **DETENER**.
-   - 0.4: `v2_config` y `weekly_config` con fila `id=1`.
-   - 0.5: índice único `ranking_history(semana)` presente (lo usa `foto_jueves`).
+   (secciones 0.1–0.5). Según el respaldo de prod, esperá esto ANTES de `00b/01`:
+   - 0.1: `challenges`, `players`, `weekly_config`, `ranking_history` `ok`;
+     **`v2_config` FALTA** (la crea `00b`) y `ranking_log` FALTA (la crea la 016).
+   - 0.2: la mayoría `ok`, pero **`challenges.disputado`, `resultado_ingresado_at`
+     y `disputa_motivo` FALTA**, y las 3 de `v2_config` (tabla ausente). Las crea `00b`.
+     Si falta CUALQUIER OTRA columna de las listadas → **DETENER** (esquema pre-010
+     realmente incompleto, fuera de lo que `00b` cubre).
+   - 0.3: `trg_stamp_resultado` devuelve **0 filas** (prod tiene 0 triggers). Lo crea `00b`.
+   - 0.4: `weekly_config` con `id=1` (=1). `v2_config` dará 0 hasta correr `00b`.
+   - 0.5: índice único `ranking_history(semana)` presente (1 fila; lo usa `foto_jueves`).
+
+   > Los faltantes de 0.1/0.2/0.3 son **esperados** y los cierra `cutover_00b`. Solo
+   > DETENÉ si aparece un faltante FUERA de esa lista conocida.
 
 > Si la FASE 0 pasa, seguí. Si algo crítico falta, parás acá: el frontend v1 sigue
 > vivo y no tocaste nada.
@@ -90,16 +111,21 @@ prod ya las tenía, no hace daño. **La FASE 0 del pre-flight confirma si faltab
 
 4. **`cutover_00_prereqs.sql`.** Ejecutar entero. Si `recalcular_stats` falla al
    crearse con *"column ... does not exist"*, es la misma señal que 0.2 → DETENER.
-5. **`cutover_01_migraciones.sql`.** Ejecutar entero (010→024). Crea columnas,
+5. **`cutover_00b_prod_base.sql`.** Ejecutar entero. Crea `v2_config`+fila `id=1`,
+   las 3 columnas de `challenges` y el trigger `trg_stamp_resultado`. Idempotente:
+   si algo ya existía, no lo pisa (`IF NOT EXISTS` / `ON CONFLICT DO NOTHING`).
+   Verificá con una re-corrida de FASE 0: ahora 0.1 `v2_config` `ok`, 0.2 las 3
+   columnas `ok`, 0.3 el trigger 1 fila.
+6. **`cutover_01_migraciones.sql`.** Ejecutar entero (010→024). Crea columnas,
    funciones, `ranking_log`, la extensión `pg_cron` y **agenda los 3 crons**.
-6. **`cutover_02_inicializacion.sql` pasos (a)–(d).**
+7. **`cutover_02_inicializacion.sql` pasos (a)–(d).**
    - **(a) PRIMERO y sin demora tras la 01**: fija `last_foto_jueves_date = hoy`
      (guard: el cron de las 16:00 UTC se salta mientras trabajás). ⏱ Ver §Foto.
    - (b) config definitiva; (c) descongelar + revisar el diagnóstico de fechas
      nulas (sanear si aparecen filas, según el comentario); (d) consultar/agendar
      el cron anual de wildcard.
    - **NO ejecutes el paso (e) todavía.**
-7. **Verificar FASE A y FASE B** de `cutover_03`:
+8. **Verificar FASE A y FASE B** de `cutover_03`:
    - A.1: las **18 funciones** `ok`. A.2: `corregir_resultado` y `marcar_wo` con
      **1 firma** cada una (sin overload). A.3: columnas nuevas `ok`. A.4: los 3
      crons `v2_*` activos (+ `yearly-wildcard-reset` si lo agendaste).
@@ -136,13 +162,13 @@ Verificar **FASE C** de `cutover_03`: C.1 muestra la foto nueva
 
 ## FASE 2 — Frontend (ÚLTIMO, solo tras verificar la base)
 
-8. **Env vars de Vercel.** Confirmá que el proyecto apunta a la URL/anon key de
+9. **Env vars de Vercel.** Confirmá que el proyecto apunta a la URL/anon key de
    **prod** (`rnaqvfmuslddeecgscox`), no a prueba.
-9. **Merge y deploy.** `v2-ranking-live` → `main`, push. Vercel despliega.
-   ```bash
-   git checkout main && git merge v2-ranking-live && git push origin main
-   ```
-10. **Smoke test** en la URL de prod:
+10. **Merge y deploy.** `v2-ranking-live` → `main`, push. Vercel despliega.
+    ```bash
+    git checkout main && git merge v2-ranking-live && git push origin main
+    ```
+11. **Smoke test** en la URL de prod:
     - Login con PIN (jugador y admin).
     - Ranking carga y ordena por posición.
     - Crear un desafío de prueba y **expirarlo/cancelarlo** (o marcarlo WO) para no

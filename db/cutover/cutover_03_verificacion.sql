@@ -22,13 +22,18 @@ SELECT t.name AS tabla,
 -- Nota: ranking_log la crea la mig 016; puede figurar 'FALTA' ANTES de cutover_01
 -- (es correcto). Las otras 5 DEBEN existir ya en prod.
 
--- 0.2 Columnas base pre-010 requeridas por funciones/crons v2 (esperado: todas 'ok')
+-- 0.2 Columnas base pre-010 requeridas por funciones/crons v2.
+-- En PROD (respaldo 2026-07-16) figuran 'FALTA' ANTES de cutover_00b:
+--   challenges.disputado, challenges.resultado_ingresado_at, challenges.disputa_motivo,
+--   y las 3 de v2_config (la tabla misma no existe → 0.1). Las crea cutover_00b.
+-- Tras 00b + 01: todas deben quedar 'ok'.
 SELECT d.tabla, d.col,
        CASE WHEN c.column_name IS NULL THEN 'FALTA ***' ELSE 'ok' END AS estado
   FROM (VALUES
         ('challenges','ganador'),('challenges','score_a'),('challenges','score_b'),
         ('challenges','status'),('challenges','ranking_applied'),('challenges','disputado'),
         ('challenges','resultado_validado'),('challenges','resultado_ingresado_at'),
+        ('challenges','disputa_motivo'),
         ('challenges','anotado_por'),('challenges','validado_por'),('challenges','deadline'),
         ('challenges','is_wo'),('challenges','is_wildcard'),('challenges','slot_day'),
         ('challenges','slot_court'),('challenges','slot_hour'),('challenges','challenger_id'),
@@ -44,7 +49,8 @@ SELECT d.tabla, d.col,
     ON c.table_schema='public' AND c.table_name=d.tabla AND c.column_name=d.col
  ORDER BY d.tabla, d.col;
 
--- 0.3 Trigger que estampa resultado_ingresado_at (esperado: 1 fila)
+-- 0.3 Trigger que estampa resultado_ingresado_at (esperado: 1 fila).
+-- En PROD devuelve 0 filas ANTES de cutover_00b (prod tiene 0 triggers) → lo crea 00b.
 SELECT trigger_name, action_timing, event_manipulation
   FROM information_schema.triggers
  WHERE event_object_table='challenges' AND trigger_name='trg_stamp_resultado';
@@ -53,10 +59,11 @@ SELECT trigger_name, action_timing, event_manipulation
 SELECT (SELECT count(*) FROM v2_config    WHERE id=1) AS v2_config_id1,
        (SELECT count(*) FROM weekly_config WHERE id=1) AS weekly_config_id1;
 
--- 0.5 Índice único ranking_history(semana) — lo usa foto_jueves (ON CONFLICT)
-SELECT indexname FROM pg_indexes
- WHERE tablename='ranking_history' AND indexdef ILIKE '%unique%(semana)%'
-    OR (tablename='ranking_history' AND indexname='ranking_history_semana_key');
+-- 0.5 Índice único ranking_history(semana) — lo usa foto_jueves (ON CONFLICT).
+-- Agnóstico al nombre (en prod se llama ranking_history_semana_unique). Esperado: 1 fila.
+SELECT indexname, indexdef FROM pg_indexes
+ WHERE schemaname='public' AND tablename='ranking_history'
+   AND indexdef ILIKE '%UNIQUE%(semana)%';
 
 
 -- ┌───────────────────────────────────────────────────────────────────┐
