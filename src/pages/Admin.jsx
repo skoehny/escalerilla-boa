@@ -157,23 +157,50 @@ export default function Admin() {
   }
 
   // ── Jugadores ────────────────────────────────────────────
-  async function activatePlayer(p, posicion) {
-    const pos = posicion ? parseInt(posicion) : (Math.max(...players.filter(x => x.activo && x.posicion).map(x => x.posicion), 0) + 1)
-    if (posicion) {
-      for (const pl of players) {
-        if (pl.id !== p.id && pl.posicion >= pos)
-          await updatePlayer(pl.id, { posicion: pl.posicion + 1 })
-      }
-    }
-    await updatePlayer(p.id, { activo: true, posicion: pos })
-    ntf(`${p.nombre} activado en #${pos}.`)
-    load()
+  async function activatePlayer(p, posicion, motivo) {
+    const n = players.filter(x => x.activo && x.posicion != null).length
+    const pos = posicion ? parseInt(posicion) : (n + 1)
+    try {
+      const { error } = await supabase.rpc('admin_activar_jugador', { p_player: p.id, p_posicion: pos, p_motivo: (motivo || '').trim() })
+      if (error) throw error
+      setEditPlayerModal(null)
+      ntf(`${p.nombre} activado en #${pos}.`)
+      load()
+    } catch (err) { ntf(err.message || 'No se pudo activar.', 'err') }
   }
 
-  async function inactivatePlayer(p) {
-    await updatePlayer(p.id, { activo: false })
-    ntf(`${p.nombre} marcado como inactivo. No aparece en el ranking.`, 'warn')
-    load()
+  async function inactivatePlayer(p, motivo) {
+    try {
+      const { error } = await supabase.rpc('admin_inactivar_jugador', { p_player: p.id, p_motivo: (motivo || '').trim() })
+      if (error) throw error
+      setEditPlayerModal(null)
+      ntf(`${p.nombre} marcado como inactivo. El ranking se compactó.`, 'warn')
+      load()
+    } catch (err) { ntf(err.message || 'No se pudo inactivar.', 'err') }
+  }
+
+  async function saveAjustarReloj() {
+    const p = editPlayerModal
+    const motivo = (p._inactMot || '').trim()
+    if (!motivo) { ntf('Indica el motivo.', 'err'); return }
+    const dias = parseInt(p._ajusteDias)
+    if (isNaN(dias) || dias < 0) { ntf('Los días deben ser un entero ≥ 0.', 'err'); return }
+    try {
+      const { error } = await supabase.rpc('admin_ajustar_reloj', { p_player: p.id, p_dias: dias, p_motivo: motivo })
+      if (error) throw error
+      setEditPlayerModal(null); ntf('Reloj de inactividad ajustado.'); load()
+    } catch (err) { ntf(err.message || 'No se pudo ajustar.', 'err') }
+  }
+
+  async function saveCongelar(freeze) {
+    const p = editPlayerModal
+    const motivo = (p._inactMot || '').trim()
+    if (!motivo) { ntf('Indica el motivo.', 'err'); return }
+    try {
+      const { error } = await supabase.rpc(freeze ? 'admin_congelar_inactividad' : 'admin_descongelar_inactividad', { p_player: p.id, p_motivo: motivo })
+      if (error) throw error
+      setEditPlayerModal(null); ntf(freeze ? 'Reloj congelado.' : 'Reloj descongelado.'); load()
+    } catch (err) { ntf(err.message || 'No se pudo.', 'err') }
   }
 
   async function saveEditPlayer() {
@@ -192,7 +219,7 @@ export default function Admin() {
 
   async function savePerdonar() {
     const p = editPlayerModal
-    const motivo = (p._perdonMotivo || '').trim()
+    const motivo = (p._inactMot || '').trim()
     if (!motivo) { ntf('Indica el motivo para perdonar la inactividad.', 'err'); return }
     try {
       const { error } = await supabase.rpc('admin_perdonar_inactividad', { p_player: p.id, p_motivo: motivo })
@@ -684,6 +711,7 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
                   <div className="avatar" style={{ width: 26, height: 26, fontSize: 10 }}>{ini(p.nombre, p.apellido)}</div>
                   <span style={{ flex: 1, fontSize: 13, color: p.lesionado ? '#A32D2D' : 'inherit' }}>
                     {p.nombre} {p.apellido}{p.lesionado ? ' (L)' : ''}
+                    {p.inactividad_congelada && <span title="reloj de inactividad congelado" style={{ marginLeft: 5, color: '#185FA5' }}>❄</span>}
                   </span>
                   {p.es_admin && <span className="badge badge-blue" style={{ fontSize: 10 }}>admin</span>}
                   {p.wildcard_usada
@@ -1134,12 +1162,26 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
                 )}
               </div>
             </div>
-            {editPlayerModal.activo && editPlayerModal.dias_inactivo > 0 && (
+            {editPlayerModal.activo && (
               <div className="form-row" style={{ background: '#FAEEDA', borderRadius: 8, padding: '8px 10px' }}>
-                <label style={{ color: '#633806' }}>Inactividad: {editPlayerModal.dias_inactivo} días ({editPlayerModal.semanas_inactivo} sem.)</label>
-                <input type="text" placeholder="Motivo para perdonar (obligatorio)"
-                  value={editPlayerModal._perdonMotivo || ''} onChange={e => setEditPlayerModal(m => ({ ...m, _perdonMotivo: e.target.value }))} />
-                <button className="btn" style={{ marginTop: 6, fontSize: 12 }} onClick={savePerdonar}>Perdonar inactividad</button>
+                <label style={{ color: '#633806', marginBottom: 6 }}>
+                  Reloj de inactividad: <strong>{editPlayerModal.dias_inactivo || 0} días</strong> ({editPlayerModal.semanas_inactivo || 0} sem.)
+                  {editPlayerModal.inactividad_congelada && <span style={{ marginLeft: 6, color: '#185FA5', fontWeight: 500 }}>❄ congelado</span>}
+                </label>
+                <input type="text" placeholder="Motivo (obligatorio)"
+                  value={editPlayerModal._inactMot || ''} onChange={e => setEditPlayerModal(m => ({ ...m, _inactMot: e.target.value }))} />
+                <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                  {editPlayerModal.dias_inactivo > 0 && (
+                    <button className="btn" style={{ fontSize: 12 }} onClick={savePerdonar}>Perdonar (→0)</button>
+                  )}
+                  <input type="number" min="0" placeholder="días" value={editPlayerModal._ajusteDias ?? ''}
+                    onChange={e => setEditPlayerModal(m => ({ ...m, _ajusteDias: e.target.value }))}
+                    style={{ width: 64, fontSize: 12 }} />
+                  <button className="btn" style={{ fontSize: 12 }} onClick={saveAjustarReloj}>Ajustar</button>
+                  {editPlayerModal.inactividad_congelada
+                    ? <button className="btn" style={{ fontSize: 12 }} onClick={() => saveCongelar(false)}>Descongelar</button>
+                    : <button className="btn" style={{ fontSize: 12 }} onClick={() => saveCongelar(true)}>Congelar</button>}
+                </div>
               </div>
             )}
             <div className="form-row" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1197,26 +1239,27 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
               {/* Activar / Inactivar */}
               {editPlayerModal.activo ? (
                 <div style={{ marginBottom: 10 }}>
-                  <button className="btn btn-warn" style={{ fontSize: 12, width: '100%' }}
-                    onClick={() => { inactivatePlayer(editPlayerModal); setEditPlayerModal(null) }}>
-                    Inactivar jugador
-                  </button>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <input placeholder="Motivo (obligatorio)" value={editPlayerModal._inactMotivo || ''}
+                      onChange={e => setEditPlayerModal(m => ({ ...m, _inactMotivo: e.target.value }))} style={{ flex: 1, fontSize: 12 }} />
+                    <button className="btn btn-warn" style={{ fontSize: 12, whiteSpace: 'nowrap' }}
+                      onClick={() => inactivatePlayer(editPlayerModal, editPlayerModal._inactMotivo)}>
+                      Inactivar
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <div style={{ marginBottom: 10 }}>
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <input
-                      type="number"
-                      placeholder="Posición (vacío = último)"
-                      value={editPlayerModal._activatePos || ''}
-                      onChange={e => setEditPlayerModal(m => ({ ...m, _activatePos: e.target.value }))}
-                      style={{ flex: 1, fontSize: 12 }}
-                    />
-                    <button className="btn btn-accept" style={{ fontSize: 12, whiteSpace: 'nowrap' }}
-                      onClick={() => { activatePlayer(editPlayerModal, editPlayerModal._activatePos); setEditPlayerModal(null) }}>
-                      Activar
-                    </button>
+                  <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+                    <input type="number" placeholder="Posición (vacío = último)" value={editPlayerModal._activatePos || ''}
+                      onChange={e => setEditPlayerModal(m => ({ ...m, _activatePos: e.target.value }))} style={{ flex: 1, fontSize: 12 }} />
+                    <input placeholder="Motivo (obligatorio)" value={editPlayerModal._activateMotivo || ''}
+                      onChange={e => setEditPlayerModal(m => ({ ...m, _activateMotivo: e.target.value }))} style={{ flex: 1, fontSize: 12 }} />
                   </div>
+                  <button className="btn btn-accept" style={{ fontSize: 12, width: '100%' }}
+                    onClick={() => activatePlayer(editPlayerModal, editPlayerModal._activatePos, editPlayerModal._activateMotivo)}>
+                    Activar jugador
+                  </button>
                 </div>
               )}
 
