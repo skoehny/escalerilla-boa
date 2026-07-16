@@ -3,3 +3,6 @@ dist/
 .env
 .dev.log
 git
+
+# Respaldos de PROD (datos personales de jugadores — NO van al repo)
+db/cutover/backup_prod_*/
