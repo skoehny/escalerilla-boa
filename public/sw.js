@@ -1,4 +1,4 @@
-// Service Worker mínimo — Escalerilla BOA
+// Service Worker mínimo — Escalerilla
 // Estrategia: network first (siempre la última versión), cache como fallback
 const CACHE = 'escalerilla-v1'
 

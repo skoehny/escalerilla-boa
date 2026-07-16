@@ -11,6 +11,8 @@ function fmtDate(d) {
 }
 import { notifyChallengeAccepted, notifyChallengeRejected, notifyChallengeExpired } from '../lib/notify'
 import { useSession } from '../components/SessionContext'
+import SetsInput, { emptySets } from '../components/SetsInput'
+import { validarMarcador, setsPayload, FORMATOS } from '../lib/formato'
 
 const HOURS = []
 for (let h = 7; h < 22; h++) {
@@ -38,19 +40,22 @@ export default function Desafios() {
   const [slotModal, setSlotModal] = useState(null)
   const [slotError, setSlotError] = useState('')
   const [playedModal, setPlayedModal] = useState(null)  // { id, challenger, challenged }
-  const [playedData, setPlayedData] = useState({ court: '', day: '', hour: '18:00', sa: '', sb: '', tba: '', tbb: '' })
+  const [playedData, setPlayedData] = useState({ court: '', day: '', hour: '18:00' })
+  const [playedSets, setPlayedSets] = useState(emptySets())
   const [playedError, setPlayedError] = useState('')
   const [cancelModal, setCancelModal] = useState(null)  // challenge a cancelar
   const [cancelReason, setCancelReason] = useState('')
   const [cancelOther, setCancelOther] = useState('')
+  const [v2cfg, setV2cfg] = useState(null)
 
   useEffect(() => { load() }, [])
 
   async function load() {
     try {
-      const [data, co] = await Promise.all([getChallenges(), getCourts()])
+      const [data, co, { data: cfg }] = await Promise.all([getChallenges(), getCourts(), supabase.from('v2_config').select('*').eq('id', 1).single()])
       setChallenges(data)
       setCourts(co)
+      setV2cfg(cfg)
     } finally { setLoading(false) }
   }
 
@@ -100,46 +105,68 @@ export default function Desafios() {
   }
 
   async function markAsPlayed() {
-    const { court, day, hour, sa, sb, tba, tbb } = playedData
-    const scoreA = parseInt(sa), scoreB = parseInt(sb)
+    const { court, day, hour } = playedData
     if (!court) { setPlayedError('Selecciona la cancha.'); return }
     if (!day) { setPlayedError('Indica la fecha del partido.'); return }
     if (!hour) { setPlayedError('Indica la hora del partido.'); return }
-    if (isNaN(scoreA) || isNaN(scoreB)) { setPlayedError('Ingresa el resultado (games de cada uno).'); return }
-    if (scoreA < 0 || scoreB < 0 || scoreA > 9 || scoreB > 9) { setPlayedError('Games entre 0 y 9.'); return }
-    if (scoreA === scoreB) { setPlayedError('No puede terminar empatado.'); return }
-    const isTB = (scoreA === 9 && scoreB === 8) || (scoreA === 8 && scoreB === 9)
-    if (isTB && (isNaN(parseInt(tba)) || isNaN(parseInt(tbb)))) { setPlayedError('Ingresa el marcador del tiebreak.'); return }
-    const slotDay = day
+    const formato = v2cfg?.formato_partido || 'set9'
+    const v = await validarMarcador(formato, playedSets)
+    if (!v.ok) { setPlayedError(v.error || 'Marcador inválido.'); return }
     try {
       await updateChallenge(playedModal.id, {
         status: 'completed',
-        slot_court: court,
-        slot_day: slotDay,
-        slot_hour: hour,
-        score_a: scoreA,
-        score_b: scoreB,
-        ganador: scoreA > scoreB ? 'challenger' : 'challenged',
-        tiebreak_a: isTB ? parseInt(tba) : null,
-        tiebreak_b: isTB ? parseInt(tbb) : null,
+        slot_court: court, slot_day: day, slot_hour: hour,
+        score_a: v.score_a, score_b: v.score_b,
+        ganador: v.ganador === 'a' ? 'challenger' : 'challenged',
+        sets: setsPayload(formato, playedSets),
+        tiebreak_a: null, tiebreak_b: null,
         anotado_por: player.id,
         ranking_applied: false,
         resultado_validado: false,
       })
+      // Aplicar al ranking AL INSTANTE (igual que Resultados.jsx y marcar_wo);
+      // el cron aplicar_pendientes queda solo como red de seguridad.
+      const { error } = await supabase.rpc('aplicar_resultado', { p_challenge_id: playedModal.id })
+      if (error) throw error
       setPlayedModal(null)
-      setPlayedData({ court: '', day: '', hour: '18:00', sa: '', sb: '', tba: '', tbb: '' })
+      setPlayedData({ court: '', day: '', hour: '18:00' })
+      setPlayedSets(emptySets())
       setPlayedError('')
-      ntf('Resultado guardado. El rival puede revisarlo en Resultados.')
+      ntf('Resultado guardado. Ranking actualizado. El rival puede validarlo o corregirlo en Resultados.')
       load()
     } catch (err) { setPlayedError(err.message) }
   }
 
   async function cancelChallenge(c) {
     const motivo = cancelReason === 'other' ? (cancelOther.trim() || 'Otro') : cancelReason
-    await updateChallenge(c.id, { status: 'expired', cancel_reason: motivo })
+    await updateChallenge(c.id, {
+      status: 'expired', cancel_reason: motivo,
+      cancelled_at: new Date().toISOString(), cancelled_by: player.id,
+    })
     ntf('Desafío cancelado.', 'warn')
     setCancelModal(null); setCancelReason(''); setCancelOther('')
     load()
+  }
+
+  // WO: la RPC marcar_wo es la ley (distingue sin-slot vs cancelación tardía,
+  // valida quién puede marcarlo, mueve el ranking y loguea 'por WO').
+  async function markWO(c) {
+    const rival = c.challenger_id === player.id ? c.challenged : c.challenger
+    if (!window.confirm(`¿Marcar WO contra ${rival?.nombre} ${rival?.apellido}? Ganás por WO y el ranking se actualiza al instante. El rival podrá corregir o disputar dentro de las próximas 24 horas.`)) return
+    try {
+      const { error } = await supabase.rpc('marcar_wo', { p_challenge_id: c.id, p_marker_id: player.id })
+      if (error) throw error
+      ntf('WO marcado. Ranking actualizado. Tu rival puede corregirlo dentro de la ventana.')
+      load()
+    } catch (err) { ntf(err.message || 'No se pudo marcar el WO.', 'err') }
+  }
+
+  // Cancelación tardía (< horas_wo_cancelacion del slot) — habilita WO al afectado
+  function isLateCancellation(c) {
+    if (!c.cancelled_at || !c.slot_day || !c.slot_hour) return false
+    const horas = v2cfg?.horas_wo_cancelacion ?? 24
+    const slotTs = new Date(`${c.slot_day}T${c.slot_hour}`).getTime()
+    return new Date(c.cancelled_at).getTime() > slotTs - horas * 3600000
   }
 
   const received = challenges.filter(c => c.challenged_id === player?.id && c.status === 'pending')
@@ -150,6 +177,16 @@ export default function Desafios() {
   const mySent = challenges.filter(c => c.challenger_id === player?.id && c.status === 'pending')
   const allActive = challenges.filter(c => c.status === 'pending' || c.status === 'accepted')
   const playedThisWeek = challenges.filter(c => c.status === 'completed' && c.ranking_applied === false)
+  // WO sin slot: desafío activo sin cancha reservada (lo puede marcar cualquiera de los dos)
+  const woSinSlot = (c) => (c.status === 'pending' || c.status === 'accepted') && !(c.slot_day && c.slot_court && c.slot_hour)
+  // WO por cancelación tardía: cancelado con slot, tardío, donde soy el afectado (no cancelé yo)
+  const woCancelaciones = challenges.filter(c =>
+    c.status === 'expired' && c.cancelled_at && !c.is_wo && c.slot_day && c.slot_hour &&
+    (c.challenger_id === player?.id || c.challenged_id === player?.id) &&
+    c.cancelled_by !== player?.id &&
+    new Date(c.cancelled_at).getTime() > Date.now() - 7 * 24 * 3600000 &&
+    isLateCancellation(c)
+  )
 
   if (loading) return <p style={{ color: '#888', fontSize: 13, padding: 24 }}>Cargando...</p>
 
@@ -165,8 +202,30 @@ export default function Desafios() {
       )}
 
       <p style={{ fontSize: 12, color: '#888', marginBottom: 10 }}>
-        <i className="ti ti-info-circle" style={{ verticalAlign: -2 }} aria-hidden="true" /> 48 h para aceptar · máx. 2 rechazos/mes · 1 partido/semana · lesionados no pueden ser desafiados
+        <i className="ti ti-info-circle" style={{ verticalAlign: -2 }} aria-hidden="true" /> 48 h para aceptar · máx. 2 rechazos/mes · 1 desafío activo · lesionados no pueden ser desafiados
       </p>
+
+      {woCancelaciones.length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          <div className="section-title">Cancelación tardía — puedes marcar WO</div>
+          {woCancelaciones.map(c => {
+            const canceller = c.cancelled_by === c.challenger_id ? c.challenger : c.challenged
+            return (
+              <div key={c.id} className="card" style={{ borderColor: '#E8A13A' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 500 }}>{canceller?.nombre} {canceller?.apellido} canceló tarde</div>
+                    <div style={{ fontSize: 12, color: '#888' }}>Cancha {c.slot_court} · {fmtDate(c.slot_day)} {c.slot_hour} · a menos de {v2cfg?.horas_wo_cancelacion ?? 24} h del partido</div>
+                  </div>
+                  <button className="btn btn-warn" style={{ fontSize: 12, padding: '4px 10px', flexShrink: 0 }} onClick={() => markWO(c)}>
+                    Marcar WO
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
 
       {mySent.length > 0 && (
         <div style={{ marginBottom: 14 }}>
@@ -186,9 +245,12 @@ export default function Desafios() {
                 </div>
                 <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
                   <button className="btn btn-accept" style={{ fontSize: 12, padding: '4px 10px' }}
-                    onClick={() => { setPlayedModal({ id: c.id, challenger: c.challenger, challenged: c.challenged }); setPlayedData({ court: courts[0]?.id || '', day: new Date().toLocaleDateString('en-CA'), hour: '18:00', sa: '', sb: '', tba: '', tbb: '' }); setPlayedError('') }}>
+                    onClick={() => { setPlayedModal({ id: c.id, challenger: c.challenger, challenged: c.challenged }); setPlayedData({ court: courts[0]?.id || '', day: new Date().toLocaleDateString('en-CA'), hour: '18:00' }); setPlayedSets(emptySets()); setPlayedError('') }}>
                     Jugamos
                   </button>
+                  {woSinSlot(c) && (
+                    <button className="btn btn-warn" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => markWO(c)}>WO</button>
+                  )}
                   <button className="btn btn-reject" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => { setCancelModal(c); setCancelReason(''); setCancelOther('') }}>
                     Cancelar
                   </button>
@@ -218,6 +280,7 @@ export default function Desafios() {
                     #{c.challenger?.posicion} vs #{c.challenged?.posicion} · 48 h para responder
                   </div>
                 </div>
+                {woSinSlot(c) && <button className="btn btn-warn" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => markWO(c)}>WO</button>}
                 <button className="btn btn-reject" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => reject(c)}>Rechazar</button>
                 <button className="btn btn-accept" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => accept(c)}>Aceptar</button>
               </div>
@@ -261,7 +324,7 @@ export default function Desafios() {
                   <button
                     style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8, border: '0.5px solid #1D9E75', background: '#E1F5EE', color: '#085041', fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}
                     onClick={() => {
-                      const msg = `🎾 Escalerilla BOA — Desafío\n\n${myActive.challenger.nombre} ${myActive.challenger.apellido} vs ${myActive.challenged.nombre} ${myActive.challenged.apellido}\n\nCoordinando día y hora\n\nhttps://escalerilla-boa.vercel.app/desafios`
+                      const msg = `Escalerilla 🎾 — Desafío\n\n${myActive.challenger.nombre} ${myActive.challenger.apellido} vs ${myActive.challenged.nombre} ${myActive.challenged.apellido}\n\nCoordinando día y hora\n\nhttps://escalerilla-boa.vercel.app/desafios`
                       if (navigator.share) { navigator.share({ text: msg }).catch(() => {}) }
                       else { navigator.clipboard.writeText(msg); ntf('Mensaje copiado.') }
                     }}>
@@ -277,6 +340,11 @@ export default function Desafios() {
                     onClick={() => { setCancelModal(myActive); setCancelReason(''); setCancelOther('') }}>
                     Cancelar desafío
                   </button>
+                  {woSinSlot(myActive) && (
+                    <button className="btn btn-warn" style={{ fontSize: 12, padding: '6px 12px' }} onClick={() => markWO(myActive)}>
+                      Marcar WO
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -392,36 +460,12 @@ export default function Desafios() {
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>
-              <div className="form-row">
-                <label>{playedModal.challenger?.nombre} (games) *</label>
-                <input type="number" min="0" max="9" value={playedData.sa}
-                  onChange={e => { setPlayedData(d => ({ ...d, sa: e.target.value })); setPlayedError('') }}
-                  placeholder="0–9" inputMode="numeric" />
-              </div>
-              <div className="form-row">
-                <label>{playedModal.challenged?.nombre} (games) *</label>
-                <input type="number" min="0" max="9" value={playedData.sb}
-                  onChange={e => { setPlayedData(d => ({ ...d, sb: e.target.value })); setPlayedError('') }}
-                  placeholder="0–9" inputMode="numeric" />
-              </div>
+            <div style={{ marginTop: 10 }}>
+              <div style={{ fontSize: 11, color: '#888', marginBottom: 6 }}>Marcador · {FORMATOS[v2cfg?.formato_partido || 'set9']?.label}</div>
+              <SetsInput formato={v2cfg?.formato_partido || 'set9'} sets={playedSets}
+                setSets={(next) => { setPlayedSets(next); setPlayedError('') }}
+                nameA={playedModal.challenger?.nombre} nameB={playedModal.challenged?.nombre} />
             </div>
-
-            {((parseInt(playedData.sa) === 9 && parseInt(playedData.sb) === 8) ||
-              (parseInt(playedData.sa) === 8 && parseInt(playedData.sb) === 9)) && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                <div className="form-row">
-                  <label>Tiebreak {playedModal.challenger?.nombre} *</label>
-                  <input type="number" min="0" value={playedData.tba}
-                    onChange={e => setPlayedData(d => ({ ...d, tba: e.target.value }))} inputMode="numeric" />
-                </div>
-                <div className="form-row">
-                  <label>Tiebreak {playedModal.challenged?.nombre} *</label>
-                  <input type="number" min="0" value={playedData.tbb}
-                    onChange={e => setPlayedData(d => ({ ...d, tbb: e.target.value }))} inputMode="numeric" />
-                </div>
-              </div>
-            )}
 
             <div className="modal-actions">
               <button className="btn" onClick={() => setPlayedModal(null)}>Cancelar</button>

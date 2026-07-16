@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useSession } from '../components/SessionContext'
 import { supabase } from '../lib/supabase'
+import PelotaTenis from '../components/PelotaTenis'
 
 // Pasos: 'phone' → 'complete' (primer ingreso) | 'pin' (ya registrado) | 'done'
 export default function Auth() {
@@ -10,6 +11,12 @@ export default function Auth() {
   const [error, setError] = useState('')
   const [tel, setTel] = useState('')
   const [player, setPlayer] = useState(null)
+  const [clubName, setClubName] = useState('Club BOA')
+
+  useEffect(() => {
+    supabase.from('v2_config').select('nombre_club').eq('id', 1).single()
+      .then(({ data }) => { if (data?.nombre_club) setClubName(data.nombre_club) })
+  }, [])
 
   // Completar perfil
   const [email, setEmail] = useState('')
@@ -96,7 +103,7 @@ export default function Auth() {
     try {
       const { error } = await supabase.rpc('solicitar_reset_pin', { p_id: player.id })
       if (error) throw error
-      const msg = `Hola administrador, olvidé mi PIN en la Escalerilla BOA y necesito resetearlo. Soy ${player.nombre} ${player.apellido}.`
+      const msg = `Hola administrador, olvidé mi PIN en la Escalerilla 🎾 y necesito resetearlo. Soy ${player.nombre} ${player.apellido}.`
       if (navigator.share) {
         await navigator.share({ text: msg })
       } else {
@@ -134,8 +141,8 @@ export default function Auth() {
           <div style={S.logoIcon}>
             <i className="ti ti-tennis" style={{ fontSize: 20, color: '#0F6E56' }} aria-hidden="true" />
           </div>
-          <h1 style={{ fontSize: 20, fontWeight: 500 }}>Escalerilla BOA</h1>
-          <p style={{ fontSize: 13, color: '#888', marginTop: 3 }}>Club BOA · Santiago</p>
+          <h1 style={{ fontSize: 20, fontWeight: 500 }}>Escalerilla<PelotaTenis size={24} /></h1>
+          <p style={{ fontSize: 13, color: '#888', marginTop: 3 }}>{clubName} · Santiago</p>
         </div>
 
         {error && (

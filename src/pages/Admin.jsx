@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
 import { getAllPlayers, getChallenges, updatePlayer, updateChallenge, confirmSlotPayment, getCourts, reserveSlot, supabase } from '../lib/supabase'
 import { useSession } from '../components/SessionContext'
-import { notifyRankingUpdated, notifyReminder, notifyChallengeExpired, notifyPaymentConfirmed, notifyResult } from '../lib/notify'
+import { notifyReminder, notifyChallengeExpired, notifyPaymentConfirmed, notifyResult } from '../lib/notify'
+import SetsInput, { emptySets, setsFromChallenge } from '../components/SetsInput'
+import { validarMarcador, setsPayload, FORMATOS } from '../lib/formato'
 
 
 function courtDot(courtId) {
@@ -36,127 +38,10 @@ function getNextWednesday() {
 
 function ini(n, a) { return ((n?.[0] || '') + (a?.[0] || '')).toUpperCase() }
 
-function calcPlan(simPlayers, simChallenges, cfg, frozenIds = []) {
-  const sim = simPlayers.filter(p => p.activo && p.posicion != null)
-    .sort((a, b) => a.posicion - b.posicion)
-    .map(p => ({ ...p }))
-  const frozen = new Set(frozenIds)
-  const originalPos = {}
-  sim.forEach(p => { originalPos[p.id] = p.posicion })
-  const nm = p => `${p.nombre} ${p.apellido}`
-  const reasons = {}
-  const addReason = (id, txt) => { (reasons[id] = reasons[id] || []).push(txt) }
-  const notas = []
-
-  // ── COMPARTIDO: partidos pendientes, quién jugó y penalizaciones (lo usan ambos pasos) ──
-
-  const pending = simChallenges
-    .filter(c => c.status === 'completed' && !c.ranking_applied)
-    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
-  const jugaron = new Set()
-  pending.forEach(c => { jugaron.add(c.challenger_id); jugaron.add(c.challenged_id) })
-
-  const hasEverPlayedMap = {}
-  sim.forEach(p => {
-    hasEverPlayedMap[p.id] = (p.victorias || 0) + (p.derrotas || 0) > 0 || jugaron.has(p.id)
-  })
-
-  // Candidatos a congelar: no jugaron esta semana y NO son debutantes
-  const candidatosCongelar = sim
-    .filter(p => hasEverPlayedMap[p.id] && !jugaron.has(p.id))
-    .map(p => ({ id: p.id, nombre: nm(p) }))
-
-  // Penalizaciones por inactividad: se CALCULAN acá (independiente de posiciones); se APLICAN en el PASO 2
-  const penMap = {}
-  const nuevasSemanas = {}
-  const penaltyLog = []
-  for (const p of sim) {
-    if (!hasEverPlayedMap[p.id]) { nuevasSemanas[p.id] = 0; continue }
-    if (frozen.has(p.id)) {
-      nuevasSemanas[p.id] = p.semanas_inactivo || 0   // congela el contador (ni +1 ni 0)
-      continue                                        // no entra en penMap → no baja
-    }
-    const n = jugaron.has(p.id) ? 0 : (p.semanas_inactivo || 0) + 1
-    nuevasSemanas[p.id] = n
-    if (n === 1) notas.push(`${nm(p)} lleva 1 semana sin jugar (sin penalización aún).`)
-    if (n <= 1) continue
-    const pen = n === 2 ? 2 : 1
-    penMap[p.id] = pen
-    penaltyLog.push(`${nm(p)} (-${pen})`)
-    addReason(p.id, `penalización por inactividad: ${n} semanas sin jugar (-${pen})${p.lesionado ? ' [lesionado]' : ''}`)
-  }
-
-  // ── PASO 1: Resultados de partidos (AHORA PRIMERO — sobre las posiciones S27 sin inflar) ──
-
-  for (const c of pending) {
-    const ch = sim.find(p => p.id === c.challenger_id)
-    const cd = sim.find(p => p.id === c.challenged_id)
-    if (!ch || !cd) continue
-    if (c.ganador === 'challenger' && ch.posicion > cd.posicion) {
-      const wp = ch.posicion, lp = cd.posicion
-      for (const p of sim) {
-        if (p.posicion >= lp && p.posicion < wp) {
-          p.posicion += 1
-          addReason(p.id, `desplazado por el ascenso de ${nm(ch)}`)
-        }
-      }
-      ch.posicion = lp
-      addReason(ch.id, `le ganó a ${nm(cd)} (${c.score_a}–${c.score_b}${c.is_wo ? ' WO' : ''}) y toma el puesto #${lp}`)
-    } else if (c.ganador === 'challenged') {
-      notas.push(`${nm(cd)} defendió su posición #${cd.posicion} ante ${nm(ch)} (${c.score_a}–${c.score_b}${c.is_wo ? ' WO' : ''}) — sin cambios.`)
-    }
-  }
-
-  // Reordenar por la posición ya modificada por los resultados: el PASO 2 asume `sim` ordenado por posición.
-  sim.sort((a, b) => a.posicion - b.posicion)
-  // Posición al ENTRAR al paso de inactividad (post-resultado), para que el motivo "sube por
-  // penalizaciones" sea fiel y no atribuya a la inactividad un ascenso causado por el resultado.
-  const posEntradaInactividad = {}
-  sim.forEach((p, i) => { posEntradaInactividad[p.id] = i + 1 })
-
-  // ── PASO 2: Penalizaciones por inactividad (AHORA DESPUÉS — sobre el ranking ya con resultados) ──
-
-  const inactivos = sim.filter(p => (penMap[p.id] || 0) > 0)
-    .sort((a, b) => originalPos[b.id] - originalPos[a.id])
-  for (const inactivo of inactivos) {
-    let idx = sim.indexOf(inactivo)
-    for (let step = 0; step < penMap[inactivo.id]; step++) {
-      if (idx + 1 >= sim.length) break
-      const vecino = sim[idx + 1]
-      if ((penMap[vecino.id] || 0) > 0) break
-      if (!hasEverPlayedMap[vecino.id]) break
-      sim[idx] = vecino; sim[idx + 1] = inactivo; idx++
-    }
-  }
-
-  sim.forEach((p, i) => {
-    if (!penMap[p.id] && (i + 1) < posEntradaInactividad[p.id]) {
-      addReason(p.id, 'sube por penalizaciones de jugadores más arriba')
-    }
-    p.posicion = i + 1
-  })
-
-  sim.sort((a, b) => a.posicion - b.posicion)
-
-  const movements = sim
-    .filter(p => p.posicion !== originalPos[p.id])
-    .map(p => ({
-      nombre: nm(p),
-      desde: originalPos[p.id],
-      hasta: p.posicion,
-      delta: originalPos[p.id] - p.posicion,
-      motivo: (reasons[p.id] || ['movimiento por reacomodo']).join(' + ')
-    }))
-    .sort((a, b) => a.hasta - b.hasta)
-
-  return { cfg, sim, originalPos, pending, penaltyLog, movements, notas, nuevasSemanas, candidatosCongelar }
-}
-
 export default function Admin() {
   const [players, setPlayers] = useState([])
   const [challenges, setChallenges] = useState([])
   const [courts, setCourts] = useState([])
-  const [snapshots, setSnapshots] = useState([])
   const [loading, setLoading] = useState(true)
   const [notif, setNotif] = useState(null)
   const [activeTab, setActiveTab] = useState('acciones')
@@ -165,31 +50,20 @@ export default function Admin() {
   const [slotModal, setSlotModal] = useState(null)
   const [editSlotModal, setEditSlotModal] = useState(null)
   const [editPlayerModal, setEditPlayerModal] = useState(null)
-  const [editResultModal, setEditResultModal] = useState(null)
   const [historialModal, setHistorialModal] = useState(null)
   const [newChallengeModal, setNewChallengeModal] = useState(null)
   const [newPlayerModal, setNewPlayerModal] = useState(null)
-  const [confirmPublish, setConfirmPublish] = useState(false)
-  const [publishPreview, setPublishPreview] = useState(null) // plan calculado antes de publicar
-  const [frozenIds, setFrozenIds]   = useState([])           // congelados para publicar
-  const [freezeStep, setFreezeStep] = useState(null)         // paso intermedio: { candidatos } | null
   const [inviteShare, setInviteShare] = useState(null) // invitación pendiente de enviar por WA
-  const [publishPin, setPublishPin] = useState('')
   const [pinModal, setPinModal] = useState(null) // { action: fn }
   const [pinInput, setPinInput] = useState('')
   const { player: sessionPlayer } = useSession()
   const [resultModal, setResultModal] = useState(null) // ingresar resultado desde admin
   const [woModal, setWoModal] = useState(null)
   const [cancelModal, setCancelModal] = useState(null)
-
-  // Simulador
-  const [simRows, setSimRows]             = useState(null)
-  const [simResult, setSimResult]         = useState(null)
-  const [simAddModal, setSimAddModal]     = useState(false)
-  const [simNewA, setSimNewA]             = useState('')
-  const [simNewB, setSimNewB]             = useState('')
-  const [simNewGanador, setSimNewGanador] = useState(null)
-  const [simFrozenIds, setSimFrozenIds]   = useState([])   // congelados para simular (separado de publicar)
+  const [corregirModal, setCorregirModal] = useState(null) // corregir resultado (admin)
+  const [ajustarModal, setAjustarModal] = useState(null)   // ajustar posición (admin)
+  const [v2cfg, setV2cfg] = useState(null)
+  const [cfgForm, setCfgForm] = useState(null)
 
   useEffect(() => { load() }, [])
 
@@ -199,12 +73,68 @@ export default function Admin() {
       setPlayers(pl)
       setChallenges(ch)
       setCourts(co)
-      const { data: snaps } = await supabase.from('ranking_snapshots').select('*').order('id', { ascending: false }).limit(1)
-      setSnapshots(snaps || [])
+      const { data: cfg } = await supabase.from('v2_config').select('*').eq('id', 1).single()
+      setV2cfg(cfg); setCfgForm(cfg)
     } finally { setLoading(false) }
   }
 
   function ntf(msg, type = 'ok') { setNotif({ msg, type }); setTimeout(() => setNotif(null), 4000) }
+
+  // ── Herramientas admin (v2) ──────────────────────────────
+  async function saveCorregir() {
+    const m = corregirModal
+    const formato = v2cfg?.formato_partido || 'set9'
+    const v = await validarMarcador(formato, m.sets || emptySets())
+    if (!v.ok) { ntf(v.error || 'Marcador inválido.', 'err'); return }
+    try {
+      const { error } = await supabase.rpc('corregir_resultado', {
+        p_challenge_id: m.id, p_editor_id: sessionPlayer.id,
+        p_score_a: v.score_a, p_score_b: v.score_b, p_sets: setsPayload(formato, m.sets || emptySets()),
+      })
+      if (error) throw error
+      setCorregirModal(null)
+      ntf('Resultado corregido: ranking reajustado.')
+      load()
+    } catch (err) {
+      const msg = err.message || 'No se pudo corregir.'
+      ntf(/otros partidos después/i.test(msg) ? msg + ' Usá "Ajustar posición" para mover manualmente.' : msg, 'err')
+    }
+  }
+
+  async function saveAjustar() {
+    const m = ajustarModal
+    const pos = parseInt(m.nueva_pos)
+    if (isNaN(pos)) { ntf('Ingresa la posición.', 'err'); return }
+    if (!m.motivo?.trim()) { ntf('Indica el motivo.', 'err'); return }
+    try {
+      const { error } = await supabase.rpc('admin_ajustar_posicion', { p_player: m.id, p_nueva_pos: pos, p_motivo: m.motivo.trim() })
+      if (error) throw error
+      setAjustarModal(null)
+      ntf('Posición ajustada.')
+      load()
+    } catch (err) { ntf(err.message || 'No se pudo ajustar.', 'err') }
+  }
+
+  async function saveConfig() {
+    const nums = {
+      ventana_validacion_minutos: parseInt(cfgForm.ventana_validacion_minutos),
+      dias_expiracion_desafio: parseInt(cfgForm.dias_expiracion_desafio),
+      horas_wo_cancelacion: parseInt(cfgForm.horas_wo_cancelacion),
+      max_puestos_desafio: parseInt(cfgForm.max_puestos_desafio),
+    }
+    if (Object.values(nums).some(v => isNaN(v) || v < 1)) { ntf('Los valores numéricos deben ser enteros positivos (mayores a 0).', 'err'); return }
+    const nombre_club = (cfgForm.nombre_club || '').trim()
+    if (!nombre_club) { ntf('El nombre del club no puede estar vacío.', 'err'); return }
+    const formato_partido = cfgForm.formato_partido || 'set9'
+    if (!['set9', 'set6', 'dos_sets'].includes(formato_partido)) { ntf('Formato de partido inválido.', 'err'); return }
+    const upd = { ...nums, nombre_club, formato_partido }
+    try {
+      const { error } = await supabase.from('v2_config').update(upd).eq('id', 1)
+      if (error) throw error
+      setV2cfg({ ...v2cfg, ...upd })
+      ntf('Configuración guardada.')
+    } catch (err) { ntf(err.message || 'No se pudo guardar.', 'err') }
+  }
 
   // ── Ranking ──────────────────────────────────────────────
   async function confirmWithPin(action) {
@@ -226,130 +156,51 @@ export default function Admin() {
     }
   }
 
-  // Calcula el plan de publicación SIN tocar la BD: posiciones nuevas + explicación de cada movimiento
-  async function computePublishPlan(frozenIds = []) {
-    const { data: cfg } = await supabase.from('weekly_config').select('*').eq('id', 1).single()
-    return calcPlan(players, challenges, cfg, frozenIds)
-  }
-
-  // ── Simulador ────────────────────────────────────────────────
-  function initSimRows() {
-    return challenges
-      .filter(c =>
-        (c.status === 'completed' && !c.ranking_applied) ||
-        c.status === 'accepted' ||
-        c.status === 'pending'
-      )
-      .map(c => ({
-        id: c.id,
-        challenger_id: c.challenger_id,
-        challenged_id: c.challenged_id,
-        challengerName: c.challenger ? `${c.challenger.nombre} ${c.challenger.apellido}` : '?',
-        challengedName: c.challenged ? `${c.challenged.nombre} ${c.challenged.apellido}` : '?',
-        challengerPos: c.challenger?.posicion,
-        challengedPos: c.challenged?.posicion,
-        ganador: c.ganador || null,
-        status: c.status,
-        isInvented: false,
-        created_at: c.created_at,
-      }))
-  }
-
-  function buildSimChallenges() {
-    return simRows
-      .filter(r => r.ganador !== null)
-      .map(r => ({
-        status: 'completed',
-        ranking_applied: false,
-        challenger_id: r.challenger_id,
-        challenged_id: r.challenged_id,
-        ganador: r.ganador,
-        created_at: r.created_at || new Date().toISOString(),
-        score_a: 6, score_b: 3, is_wo: false,
-      }))
-  }
-
-  async function runSim() {
-    const { data: cfg } = await supabase.from('weekly_config').select('*').eq('id', 1).single()
-    setSimResult(calcPlan(players, buildSimChallenges(), cfg, simFrozenIds))
-  }
-
-  async function publishRanking(plan) {
-    if (!sessionPlayer?.es_admin) {
-      ntf('Solo un administrador puede publicar el ranking.', 'err')
-      return
-    }
-    if (new Date().getDay() !== 4) {
-      ntf('El ranking solo se puede publicar los jueves.', 'err')
-      return
-    }
-    const { cfg, sim, originalPos, pending, penaltyLog, movements, notas, nuevasSemanas } = plan
-    const refreshed = sim
-    const nuevaSemana = (cfg?.semana || 0) + 1
-
-    const today = new Date()
-    const todayStr = today.toISOString().split('T')[0]
-    const nextWed = new Date(today)
-    const daysToWed = (3 - today.getDay() + 7) % 7 || 7
-    nextWed.setDate(today.getDate() + daysToWed)
-    const nextThu = new Date(today)
-    const daysToThu = (4 - today.getDay() + 7) % 7 || 7
-    nextThu.setDate(today.getDate() + daysToThu)
-
-    try {
-      const { error } = await supabase.rpc('publish_ranking', { payload: {
-        nueva_semana:     nuevaSemana,
-        fecha:            todayStr,
-        hora_publicacion: new Date().toISOString(),
-        fecha_cierre:     nextWed.toISOString().split('T')[0],
-        fecha_ranking:    nextThu.toISOString().split('T')[0],
-        historial_data:   refreshed.map(p => ({ id: p.id, nombre: p.nombre, apellido: p.apellido, posicion: p.posicion, victorias: p.victorias, derrotas: p.derrotas })),
-        movimientos:      { movements, notas, penaltyLog },
-        snapshot_data:    refreshed.map(p => ({ player_id: p.id, posicion: p.posicion, posicion_anterior: originalPos[p.id] })),
-        jugadores:        sim.map(p => ({ id: p.id, posicion: p.posicion, posicion_anterior: originalPos[p.id], semanas_inactivo: nuevasSemanas[p.id] ?? 0 })),
-        challenge_ids:    pending.map(c => c.id),
-      }})
-      if (error) { ntf('Error al publicar: ' + error.message + '. No se aplicaron cambios.', 'err'); return }
-
-      await notifyRankingUpdated(nuevaSemana, refreshed.slice(0, 5))
-      ntf(penaltyLog.length
-        ? `Ranking publicado. Penalizaciones por inactividad: ${penaltyLog.join(', ')}.`
-        : 'Ranking publicado. Sin penalizaciones por inactividad esta semana.')
-      load()
-
-    } catch (err) {
-      ntf('Error al publicar el ranking: ' + err.message, 'err')
-    }
-  }
-
-  async function undoRanking() {
-    if (!snapshots[0]) { ntf('No hay snapshot para deshacer.', 'warn'); return }
-    if (!confirm('¿Revertir el último ranking publicado? Se restaurarán las posiciones y los partidos volverán a estar pendientes.')) return
-    const snap = snapshots[0]
-    const { error } = await supabase.rpc('undo_ranking', { p_snapshot_id: snap.id })
-    if (error) { ntf('Error al revertir: ' + error.message, 'err'); return }
-    ntf('Ranking revertido. Posiciones y partidos restaurados.', 'warn')
-    load()
-  }
-
   // ── Jugadores ────────────────────────────────────────────
-  async function activatePlayer(p, posicion) {
-    const pos = posicion ? parseInt(posicion) : (Math.max(...players.filter(x => x.activo && x.posicion).map(x => x.posicion), 0) + 1)
-    if (posicion) {
-      for (const pl of players) {
-        if (pl.id !== p.id && pl.posicion >= pos)
-          await updatePlayer(pl.id, { posicion: pl.posicion + 1 })
-      }
-    }
-    await updatePlayer(p.id, { activo: true, posicion: pos })
-    ntf(`${p.nombre} activado en #${pos}.`)
-    load()
+  async function activatePlayer(p, posicion, motivo) {
+    const n = players.filter(x => x.activo && x.posicion != null).length
+    const pos = posicion ? parseInt(posicion) : (n + 1)
+    try {
+      const { error } = await supabase.rpc('admin_activar_jugador', { p_player: p.id, p_posicion: pos, p_motivo: (motivo || '').trim() })
+      if (error) throw error
+      setEditPlayerModal(null)
+      ntf(`${p.nombre} activado en #${pos}.`)
+      load()
+    } catch (err) { ntf(err.message || 'No se pudo activar.', 'err') }
   }
 
-  async function inactivatePlayer(p) {
-    await updatePlayer(p.id, { activo: false })
-    ntf(`${p.nombre} marcado como inactivo. No aparece en el ranking.`, 'warn')
-    load()
+  async function inactivatePlayer(p, motivo) {
+    try {
+      const { error } = await supabase.rpc('admin_inactivar_jugador', { p_player: p.id, p_motivo: (motivo || '').trim() })
+      if (error) throw error
+      setEditPlayerModal(null)
+      ntf(`${p.nombre} marcado como inactivo. El ranking se compactó.`, 'warn')
+      load()
+    } catch (err) { ntf(err.message || 'No se pudo inactivar.', 'err') }
+  }
+
+  async function saveAjustarReloj() {
+    const p = editPlayerModal
+    const motivo = (p._inactMot || '').trim()
+    if (!motivo) { ntf('Indica el motivo.', 'err'); return }
+    const dias = parseInt(p._ajusteDias)
+    if (isNaN(dias) || dias < 0) { ntf('Los días deben ser un entero ≥ 0.', 'err'); return }
+    try {
+      const { error } = await supabase.rpc('admin_ajustar_reloj', { p_player: p.id, p_dias: dias, p_motivo: motivo })
+      if (error) throw error
+      setEditPlayerModal(null); ntf('Reloj de inactividad ajustado.'); load()
+    } catch (err) { ntf(err.message || 'No se pudo ajustar.', 'err') }
+  }
+
+  async function saveCongelar(freeze) {
+    const p = editPlayerModal
+    const motivo = (p._inactMot || '').trim()
+    if (!motivo) { ntf('Indica el motivo.', 'err'); return }
+    try {
+      const { error } = await supabase.rpc(freeze ? 'admin_congelar_inactividad' : 'admin_descongelar_inactividad', { p_player: p.id, p_motivo: motivo })
+      if (error) throw error
+      setEditPlayerModal(null); ntf(freeze ? 'Reloj congelado.' : 'Reloj descongelado.'); load()
+    } catch (err) { ntf(err.message || 'No se pudo.', 'err') }
   }
 
   async function saveEditPlayer() {
@@ -358,36 +209,25 @@ export default function Admin() {
     const dup = players.find(x => x.id !== p.id && x.nombre?.trim().toLowerCase() === p.nombre?.trim().toLowerCase() && x.apellido?.trim().toLowerCase() === p.apellido?.trim().toLowerCase())
     if (dup) { ntf(`Ya existe otro jugador con el mismo nombre y apellido (#${dup.posicion}).`, 'err'); return }
     if (!p.telefono?.trim() || !/^9\d{8}$/.test(p.telefono)) { ntf('El teléfono debe tener 9 dígitos y empezar con 9 (ej: 912345678).', 'err'); return }
-    const newPos = parseInt(p.posicion)
-    const oldPos = players.find(x => x.id === p.id)?.posicion
-    
-    // Reorder other players if position changed
-    if (newPos && newPos !== oldPos) {
-      if (!oldPos) {
-        // Sin posición previa: abrir hueco en newPos
-        for (const pl of players) {
-          if (pl.id !== p.id && pl.posicion >= newPos)
-            await updatePlayer(pl.id, { posicion: pl.posicion + 1 })
-        }
-      } else if (newPos < oldPos) {
-        // Mover arriba: [newPos..oldPos-1] bajan uno
-        for (const pl of players) {
-          if (pl.id !== p.id && pl.posicion >= newPos && pl.posicion < oldPos)
-            await updatePlayer(pl.id, { posicion: pl.posicion + 1 })
-        }
-      } else {
-        // Mover abajo: [oldPos+1..newPos] suben uno
-        for (const pl of players) {
-          if (pl.id !== p.id && pl.posicion > oldPos && pl.posicion <= newPos)
-            await updatePlayer(pl.id, { posicion: pl.posicion - 1 })
-        }
-      }
-    }
-    
-    await updatePlayer(p.id, { nombre: p.nombre, apellido: p.apellido, email: p.email, telefono: p.telefono, posicion: newPos, es_admin: p.es_admin, wildcard_usada: p.wildcard_usada || false })
+    // La posición NO se edita acá: usar "Ajustar posición" (admin_ajustar_posicion,
+    // atómico y con log). Este form solo actualiza datos de perfil.
+    await updatePlayer(p.id, { nombre: p.nombre, apellido: p.apellido, email: p.email, telefono: p.telefono, es_admin: p.es_admin, wildcard_usada: p.wildcard_usada || false })
     setEditPlayerModal(null)
-    ntf('Perfil actualizado. Ranking reordenado.')
+    ntf('Perfil actualizado.')
     load()
+  }
+
+  async function savePerdonar() {
+    const p = editPlayerModal
+    const motivo = (p._inactMot || '').trim()
+    if (!motivo) { ntf('Indica el motivo para perdonar la inactividad.', 'err'); return }
+    try {
+      const { error } = await supabase.rpc('admin_perdonar_inactividad', { p_player: p.id, p_motivo: motivo })
+      if (error) throw error
+      setEditPlayerModal(null)
+      ntf('Inactividad perdonada: reloj en cero.')
+      load()
+    } catch (err) { ntf(err.message || 'No se pudo perdonar.', 'err') }
   }
 
   // ── Desafíos ─────────────────────────────────────────────
@@ -441,9 +281,9 @@ export default function Admin() {
         es_admin: false, victorias: 0, derrotas: 0,
       })
       if (error) throw error
-      const msg = `🎾 *Escalerilla BOA — Club BOA*
+      const msg = `*Escalerilla 🎾 — ${v2cfg?.nombre_club || 'Club BOA'}*
 
-Hola ${p.nombre}, te invitamos a unirte a la Escalerilla BOA.
+Hola ${p.nombre}, te invitamos a unirte a la Escalerilla 🎾.
 
 Ingresa en: https://escalerilla-boa.vercel.app
 
@@ -533,94 +373,51 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
   // ── Resultados ───────────────────────────────────────────
   async function saveResult() {
     const m = resultModal
-    const sa = parseInt(m.score_a), sb = parseInt(m.score_b)
-    if (isNaN(sa) || isNaN(sb)) { ntf('Ingresa los games', 'err'); return }
-    if (sa === sb) { ntf('No puede terminar empatado.', 'err'); return }
-    if (sa < 0 || sb < 0 || sa > 9 || sb > 9) { ntf('Games entre 0 y 9.', 'err'); return }
-    const isTB = (sa === 9 && sb === 8) || (sa === 8 && sb === 9)
-    if (isTB) {
-      const tba = parseInt(m.tiebreak_a), tbb = parseInt(m.tiebreak_b)
-      if (isNaN(tba) || isNaN(tbb) || Math.abs(tba - tbb) < 2) { ntf('Tiebreak inválido — diferencia mínima 2', 'err'); return }
-    }
     if (!m.slot_court) { ntf('Selecciona la cancha.', 'err'); return }
     const finalDay = m.slot_day_edit || m.slot_day || null
     if (!finalDay) { ntf('Ingresa la fecha del partido.', 'err'); return }
     if (!m.slot_hour) { ntf('Ingresa la hora del partido.', 'err'); return }
-    const slotDay = m.slot_day_edit || finalDay
-    const winner = sa > sb ? 'challenger' : 'challenged'
+    const formato = v2cfg?.formato_partido || 'set9'
+    const v = await validarMarcador(formato, m.sets || emptySets())
+    if (!v.ok) { ntf(v.error || 'Marcador inválido.', 'err'); return }
+    const winner = v.ganador === 'a' ? 'challenger' : 'challenged'
     const ch = players.find(p => p.id === m.challenger_id)
     const cd = players.find(p => p.id === m.challenged_id)
     const winnerP = winner === 'challenger' ? ch : cd
-    const loserP = winner === 'challenger' ? cd : ch
     try {
+      // Guardar + aplicar al instante (aplicar_resultado mueve ranking y recalcula stats).
       await updateChallenge(m.id, {
-        status: 'completed', score_a: sa, score_b: sb, ganador: winner,
-        slot_court: m.slot_court, slot_day: slotDay, slot_hour: m.slot_hour,
-        ranking_applied: false, resultado_validado: false,
-        ...(isTB ? { tiebreak_a: parseInt(m.tiebreak_a), tiebreak_b: parseInt(m.tiebreak_b) } : { tiebreak_a: null, tiebreak_b: null })
+        status: 'completed', score_a: v.score_a, score_b: v.score_b, ganador: winner,
+        sets: setsPayload(formato, m.sets || emptySets()),
+        slot_court: m.slot_court, slot_day: finalDay, slot_hour: m.slot_hour,
+        anotado_por: sessionPlayer.id, ranking_applied: false, resultado_validado: false,
+        tiebreak_a: null, tiebreak_b: null,
       })
-      if (winnerP) await updatePlayer(winnerP.id, { victorias: (winnerP.victorias || 0) + 1 })
-      if (loserP) await updatePlayer(loserP.id, { derrotas: (loserP.derrotas || 0) + 1 })
-      await notifyResult(ch, cd, sa, sb, winnerP, null)
+      const { error } = await supabase.rpc('aplicar_resultado', { p_challenge_id: m.id })
+      if (error) throw error
+      await notifyResult(ch, cd, v.score_a, v.score_b, winnerP, null)
       setResultModal(null)
-      ntf(`Resultado guardado: ${sa}–${sb}. ${winnerP?.nombre} gana.`)
+      ntf(`Resultado guardado. ${winnerP?.nombre} gana. Ranking actualizado.`)
       load()
     } catch (err) { ntf(err.message, 'err') }
-  }
-
-  async function saveEditResult() {
-    const m = editResultModal
-    const sa = parseInt(m.score_a), sb = parseInt(m.score_b)
-    if (isNaN(sa) || isNaN(sb)) { ntf('Ingresa el resultado de ambos jugadores.', 'err'); return }
-    if (sa === sb) { ntf('No puede terminar empatado.', 'err'); return }
-    if (!m.slot_court) { ntf('Selecciona la cancha.', 'err'); return }
-    const finalDate = m.slot_day_edit || m.slot_day || null
-    if (!finalDate) { ntf('Ingresa la fecha del partido.', 'err'); return }
-    const isTB = (sa === 9 && sb === 8) || (sa === 8 && sb === 9)
-    const updates = { score_a: sa, score_b: sb, ganador: m.ganador, slot_court: m.slot_court, slot_day: finalDate }
-    if (m.slot_day_edit) updates.created_at = new Date(m.slot_day_edit + 'T12:00:00').toISOString()
-    if (isTB) {
-      const tba = parseInt(m.tiebreak_a), tbb = parseInt(m.tiebreak_b)
-      if (isNaN(tba) || isNaN(tbb)) { ntf('Ingresa el resultado del tiebreak.', 'err'); return }
-      if (Math.abs(tba - tbb) < 2) { ntf('Tiebreak: diferencia mínima de 2.', 'err'); return }
-      updates.tiebreak_a = tba; updates.tiebreak_b = tbb
-    } else {
-      updates.tiebreak_a = null; updates.tiebreak_b = null
-    }
-    await updateChallenge(m.id, updates)
-    setEditResultModal(null)
-    ntf('Resultado editado.')
-    load()
   }
 
   // ── WO ──────────────────────────────────────────────────
   async function declareWO() {
     const m = woModal
-    const ch = players.find(p => p.id === m.challenger_id)
-    const cd = players.find(p => p.id === m.challenged_id)
-    const loser = m.wo_loser === 'challenger' ? ch : cd
-    const winner = m.wo_loser === 'challenger' ? cd : ch
+    // El ganador es el que NO pierde; marcar_wo (override admin) le da el 9-0 y
+    // aplica al ranking (loguea 'por WO', mueve posiciones, cuenta stats).
+    const winnerId = m.wo_loser === 'challenger' ? m.challenged_id : m.challenger_id
+    const winner = players.find(p => p.id === winnerId)
     try {
-      await updateChallenge(m.id, {
-        status: 'completed', score_a: m.wo_loser === 'challenger' ? 0 : 9,
-        score_b: m.wo_loser === 'challenger' ? 9 : 0,
-        ganador: m.wo_loser === 'challenger' ? 'challenged' : 'challenger',
-        is_wo: true,
+      const { error } = await supabase.rpc('marcar_wo', {
+        p_challenge_id: m.id, p_marker_id: winnerId, p_admin_override: true,
       })
-      if (winner) await updatePlayer(winner.id, { victorias: (winner.victorias || 0) + 1 })
-      if (loser) await updatePlayer(loser.id, { derrotas: (loser.derrotas || 0) + 1 })
-      // Mover ranking
-      if (m.wo_loser === 'challenged' && ch && cd && ch.posicion > cd.posicion) {
-        const wp = ch.posicion, lp = cd.posicion
-        for (const p of players) {
-          if (p.posicion >= lp && p.posicion < wp) await updatePlayer(p.id, { posicion_anterior: p.posicion, posicion: p.posicion + 1 })
-        }
-        await updatePlayer(ch.id, { posicion_anterior: ch.posicion, posicion: lp })
-      }
+      if (error) throw error
       setWoModal(null)
-      ntf(`W.O. declarado. ${winner?.nombre} gana 9-0.`)
+      ntf(`W.O. declarado. ${winner?.nombre || 'El ganador'} gana 9-0. Ranking actualizado.`)
       load()
-    } catch (err) { ntf(err.message, 'err') }
+    } catch (err) { ntf(err.message || 'No se pudo declarar el WO.', 'err') }
   }
 
   async function cancelMatch() {
@@ -664,8 +461,7 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
 
   if (loading) return <p style={{ color: '#888', fontSize: 13, padding: 24 }}>Cargando...</p>
 
-  const tabs = ['acciones', 'desafíos', 'resultados', 'jugadores', 'simulador']
-  const esJueves = new Date().getDay() === 4
+  const tabs = ['acciones', 'desafíos', 'resultados', 'jugadores', 'config']
 
   return (
     <div>
@@ -675,7 +471,6 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
       <div style={{ display: 'flex', gap: 0, marginBottom: 14, borderBottom: '0.5px solid #e0dfd8', overflowX: 'auto' }}>
         {tabs.map(t => (
           <button key={t} onClick={() => {
-            if (t === 'simulador' && simRows === null) setSimRows(initSimRows())
             setActiveTab(t)
           }} style={{
             padding: '8px 14px', fontSize: 13, cursor: 'pointer', border: 'none',
@@ -711,42 +506,6 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
           )}
           <div className="card" style={{ padding: '14px 16px' }}>
 
-            {/* ── Ranking ── */}
-            <div style={{ fontSize: 12, fontWeight: 500, color: '#6b6b6b', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 10 }}>Ranking</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <button
-                disabled={!esJueves}
-                style={{
-                  gridColumn: '1 / -1',
-                  background: esJueves ? '#E1F5EE' : '#f7f6f2',
-                  border: esJueves ? '1px solid #9FE1CB' : '1px solid #e0dfd8',
-                  color: esJueves ? '#0F6E56' : '#b0afa8',
-                  borderRadius: 10, padding: '14px 8px', fontSize: 14, fontWeight: 500,
-                  cursor: esJueves ? 'pointer' : 'not-allowed',
-                  fontFamily: 'inherit'
-                }}
-                onClick={async () => {
-                  const plan = await computePublishPlan()          // 1ª pasada SIN congelados
-                  setFrozenIds([])                                 // reset selección
-                  setFreezeStep({ candidatos: plan.candidatosCongelar })
-                }}>
-                <i className="ti ti-trophy" style={{ verticalAlign: -2, marginRight: 6 }} aria-hidden="true" />Publicar ranking
-              </button>
-              {!esJueves && (
-                <div style={{ gridColumn: '1 / -1', fontSize: 11, color: '#b0afa8', marginTop: -4 }}>
-                  El ranking solo se puede publicar los jueves.
-                </div>
-              )}
-              {snapshots.length > 0 && (
-                <button style={{ gridColumn: '1 / -1', background: '#f7f6f2', border: '1px solid #e0dfd8', color: '#b0afa8', borderRadius: 10, padding: '14px 8px', fontSize: 14, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}
-                  onClick={undoRanking}>
-                  <i className="ti ti-arrow-back" style={{ verticalAlign: -2, marginRight: 6 }} aria-hidden="true" />Deshacer ranking
-                </button>
-              )}
-            </div>
-
-            <div style={{ borderTop: '1.5px solid #ecece4', margin: '18px 0' }} />
-
             {/* ── Crear ── */}
             <div style={{ fontSize: 12, fontWeight: 500, color: '#6b6b6b', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 10 }}>Crear</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
@@ -779,7 +538,7 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
                   const active = challenges.filter(c => c.status === 'accepted')
                   const completed = challenges.filter(c => c.status === 'completed' && c.ranking_applied === false)
                   const nm = p => `${p?.nombre || ''} ${p?.apellido || ''}`.trim()
-                  let msg = '🎾 *Escalerilla BOA — Semana activa*\n\n'
+                  let msg = '*Escalerilla 🎾 — Semana activa*\n\n'
                   if (pending.length) {
                     msg += '⏳ *Pendientes de aceptación:*\n'
                     pending.forEach(c => {
@@ -816,7 +575,7 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
               </button>
               <button style={{ gridColumn: '1 / -1', background: '#f3f2ed', border: '1px solid #d8d7d0', color: '#555', borderRadius: 10, padding: '14px 8px', fontSize: 14, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}
                 onClick={async () => {
-                  const msg = '🎾 Escalerilla BOA — Club BOA. Ingresa en: https://escalerilla-boa.vercel.app. Si ya eres jugador: entra con tu número de WhatsApp y completa tu perfil. Si quieres unirte: regístrate con tus datos y el admin te activará.'
+                  const msg = `Escalerilla 🎾 — ${v2cfg?.nombre_club || 'Club BOA'}. Ingresa en: https://escalerilla-boa.vercel.app. Si ya eres jugador: entra con tu número de WhatsApp y completa tu perfil. Si quieres unirte: regístrate con tus datos y el admin te activará.`
                   if (navigator.share) {
                     await navigator.share({ text: msg })
                   } else {
@@ -880,7 +639,7 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
                       }
                       {c.slot_day && !c.pago_confirmado && <button className="btn btn-accept" style={{ fontSize: 12 }} onClick={() => validatePayment(c)}>Validar pago</button>}
                       <button className="btn btn-accept" style={{ fontSize: 12, borderColor: '#185FA5', color: '#185FA5' }}
-                        onClick={() => setResultModal({ ...c, challenger_id: c.challenger_id || c.challenger?.id, challenged_id: c.challenged_id || c.challenged?.id, challenger: ch, challenged: cd, score_a: '', score_b: '', tiebreak_a: '', tiebreak_b: '', slot_court: c.slot_court || courts[0]?.id || '', slot_day_edit: new Date().toLocaleDateString('en-CA'), slot_hour: c.slot_hour || '18:00' })}>
+                        onClick={() => setResultModal({ ...c, challenger_id: c.challenger_id || c.challenger?.id, challenged_id: c.challenged_id || c.challenged?.id, challenger: ch, challenged: cd, sets: emptySets(), slot_court: c.slot_court || courts[0]?.id || '', slot_day_edit: new Date().toLocaleDateString('en-CA'), slot_hour: c.slot_hour || '18:00' })}>
                         Ingresar resultado
                       </button>
                       <button className="btn btn-warn" style={{ fontSize: 12 }}
@@ -920,10 +679,12 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
                       <span style={{ fontWeight: c.ganador === 'challenged' ? 500 : 400 }}>{cd?.nombre}</span>
                     </span>
                     <span className="badge badge-green" style={{ marginRight: 8 }}>{w?.nombre}</span>
-                    <button className="btn" style={{ fontSize: 11, padding: '2px 8px' }}
-                      onClick={() => setEditResultModal({ ...c, challenger: ch, challenged: cd, tiebreak_a: c.tiebreak_a || '', tiebreak_b: c.tiebreak_b || '' })}>
-                      Editar
-                    </button>
+                    {c.ranking_applied && c.applied_at && (Date.now() - new Date(c.applied_at).getTime() < 14 * 24 * 3600000) && (
+                      <button className="btn" style={{ fontSize: 11, padding: '2px 8px' }}
+                        onClick={() => setCorregirModal({ id: c.id, challenger: ch, challenged: cd, sets: setsFromChallenge(c) })}>
+                        Corregir
+                      </button>
+                    )}
                   </div>
                 )
               })
@@ -950,6 +711,7 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
                   <div className="avatar" style={{ width: 26, height: 26, fontSize: 10 }}>{ini(p.nombre, p.apellido)}</div>
                   <span style={{ flex: 1, fontSize: 13, color: p.lesionado ? '#A32D2D' : 'inherit' }}>
                     {p.nombre} {p.apellido}{p.lesionado ? ' (L)' : ''}
+                    {p.inactividad_congelada && <span title="reloj de inactividad congelado" style={{ marginLeft: 5, color: '#185FA5' }}>❄</span>}
                   </span>
                   {p.es_admin && <span className="badge badge-blue" style={{ fontSize: 10 }}>admin</span>}
                   {p.wildcard_usada
@@ -985,257 +747,81 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
         </div>
       )}
 
-      {/* SIMULADOR */}
-      {activeTab === 'simulador' && simRows !== null && (() => {
-        const activePlayers = players.filter(p => p.activo && p.posicion != null)
-          .sort((a, b) => a.posicion - b.posicion)
-
-        const bSim = (active) => ({
-          fontSize: 11, padding: '3px 9px', borderRadius: 6, cursor: 'pointer',
-          fontFamily: 'inherit', fontWeight: active ? 500 : 400,
-          border: active ? '1px solid #0F6E56' : '0.5px solid #ccc',
-          background: active ? '#E1F5EE' : '#f5f4f0',
-          color: active ? '#0F6E56' : '#888',
-        })
-
-        const setGanador = (id, val) =>
-          setSimRows(rows => rows.map(r => r.id === id ? { ...r, ganador: val } : r))
-
-        const renderRow = (r) => (
-          <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: '0.5px solid #f0efe8', flexWrap: 'wrap' }}>
-            <span style={{ flex: 1, fontSize: 12, minWidth: 120 }}>
-              <span style={{ fontWeight: 500 }}>{r.challengerName}</span>
-              <span style={{ color: '#aaa' }}> (#{r.challengerPos})</span>
-              <span style={{ color: '#bbb' }}> vs </span>
-              <span style={{ fontWeight: 500 }}>{r.challengedName}</span>
-              <span style={{ color: '#aaa' }}> (#{r.challengedPos})</span>
-              {r.isInvented && <span style={{ fontSize: 10, color: '#1D9E75', marginLeft: 5 }}>+ inventado</span>}
-            </span>
-            <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-              <button style={bSim(r.ganador === 'challenger')} onClick={() => setGanador(r.id, r.ganador === 'challenger' ? null : 'challenger')}>Gana A</button>
-              <button style={bSim(r.ganador === 'challenged')} onClick={() => setGanador(r.id, r.ganador === 'challenged' ? null : 'challenged')}>Gana B</button>
-              <button style={bSim(r.ganador === null)} onClick={() => setGanador(r.id, null)}>Sin jugar</button>
+      {/* CONFIGURACIÓN v2 */}
+      {activeTab === 'config' && cfgForm && (
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>Configuración v2</div>
+          <div className="card" style={{ padding: '14px 16px' }}>
+            {[
+              ['ventana_validacion_minutos', 'Ventana de validación/corrección (minutos)'],
+              ['dias_expiracion_desafio', 'Expiración de desafío (días)'],
+              ['horas_wo_cancelacion', 'Cancelación tardía → WO (horas)'],
+              ['max_puestos_desafio', 'Rango máximo de desafío (puestos)'],
+            ].map(([key, label]) => (
+              <div className="form-row" key={key} style={{ marginBottom: 10 }}>
+                <label>{label}</label>
+                <input type="text" inputMode="numeric" value={cfgForm[key] ?? ''}
+                  onChange={e => setCfgForm(f => ({ ...f, [key]: e.target.value.replace(/[^0-9]/g, '') }))} />
+              </div>
+            ))}
+            <div className="form-row" style={{ marginBottom: 10 }}>
+              <label>Nombre del club</label>
+              <input type="text" value={cfgForm.nombre_club ?? ''} onChange={e => setCfgForm(f => ({ ...f, nombre_club: e.target.value }))} />
             </div>
+            <div className="form-row" style={{ marginBottom: 10 }}>
+              <label>Formato de partido</label>
+              <select value={cfgForm.formato_partido ?? 'set9'} onChange={e => setCfgForm(f => ({ ...f, formato_partido: e.target.value }))}>
+                <option value="set9">1 set a 9</option>
+                <option value="set6">1 set a 6</option>
+                <option value="dos_sets">2 sets a 6 + super tiebreak</option>
+              </select>
+              <p style={{ fontSize: 11, color: '#888', marginTop: 4 }}>Aplica a los partidos que se ingresen desde ahora; los ya jugados no se tocan.</p>
+            </div>
+            <button className="btn btn-accept" style={{ marginTop: 4 }} onClick={saveConfig}>Guardar configuración</button>
+            <p style={{ fontSize: 11, color: '#888', marginTop: 8 }}>Los cambios aplican a desafíos y resultados nuevos. Los desafíos ya creados conservan su fecha de expiración.</p>
           </div>
-        )
-
-        const jugados    = simRows.filter(r => r.status === 'completed' && !r.isInvented)
-        const aceptados  = simRows.filter(r => r.status === 'accepted')
-        const pendientes = simRows.filter(r => r.status === 'pending')
-        const inventados = simRows.filter(r => r.isInvented)
-
-        // Candidatos a congelar según el estado del simulador (misma regla que calcPlan)
-        const simJugaron = new Set()
-        simRows.filter(r => r.ganador !== null).forEach(r => { simJugaron.add(r.challenger_id); simJugaron.add(r.challenged_id) })
-        const simCandidatos = activePlayers
-          .filter(p => (p.victorias || 0) + (p.derrotas || 0) > 0 && !simJugaron.has(p.id))
-          .map(p => ({ id: p.id, nombre: `${p.nombre} ${p.apellido}` }))
-
-        return (
-          <div>
-            <div style={{ background: '#FFF8E1', border: '1px solid #FFE082', borderRadius: 8, padding: '8px 12px', fontSize: 12, color: '#7A5C00', marginBottom: 14 }}>
-              🧪 Simulación — no afecta el ranking real. Solo cálculo en memoria.
-            </div>
-
-            {jugados.length > 0 && (
-              <div className="card" style={{ marginBottom: 10 }}>
-                <div style={{ fontSize: 11, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
-                  Jugados esta semana ({jugados.length})
-                </div>
-                {jugados.map(renderRow)}
-              </div>
-            )}
-
-            {aceptados.length > 0 && (
-              <div className="card" style={{ marginBottom: 10 }}>
-                <div style={{ fontSize: 11, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
-                  En juego — aceptados ({aceptados.length})
-                </div>
-                {aceptados.map(renderRow)}
-              </div>
-            )}
-
-            {pendientes.length > 0 && (
-              <div className="card" style={{ marginBottom: 10 }}>
-                <div style={{ fontSize: 11, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
-                  Pendientes de aceptar ({pendientes.length})
-                </div>
-                {pendientes.map(renderRow)}
-              </div>
-            )}
-
-            {inventados.length > 0 && (
-              <div className="card" style={{ marginBottom: 10 }}>
-                <div style={{ fontSize: 11, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
-                  Desafíos inventados ({inventados.length})
-                </div>
-                {inventados.map(r => (
-                  <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: '0.5px solid #f0efe8', flexWrap: 'wrap' }}>
-                    <span style={{ flex: 1, fontSize: 12, minWidth: 120 }}>
-                      <span style={{ fontWeight: 500 }}>{r.challengerName}</span>
-                      <span style={{ color: '#aaa' }}> (#{r.challengerPos})</span>
-                      <span style={{ color: '#bbb' }}> vs </span>
-                      <span style={{ fontWeight: 500 }}>{r.challengedName}</span>
-                      <span style={{ color: '#aaa' }}> (#{r.challengedPos})</span>
-                      <span style={{ fontSize: 10, color: '#1D9E75', marginLeft: 5 }}>+ inventado</span>
-                    </span>
-                    <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-                      <button style={bSim(r.ganador === 'challenger')} onClick={() => setGanador(r.id, r.ganador === 'challenger' ? null : 'challenger')}>Gana A</button>
-                      <button style={bSim(r.ganador === 'challenged')} onClick={() => setGanador(r.id, r.ganador === 'challenged' ? null : 'challenged')}>Gana B</button>
-                      <button style={bSim(r.ganador === null)} onClick={() => setGanador(r.id, null)}>Sin jugar</button>
-                      <button style={{ fontSize: 11, padding: '3px 7px', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit', border: '0.5px solid #f09595', background: '#fff5f5', color: '#A32D2D' }}
-                        onClick={() => setSimRows(rows => rows.filter(x => x.id !== r.id))}>✕</button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {simAddModal ? (
-              <div className="card" style={{ marginBottom: 10 }}>
-                <div style={{ fontSize: 11, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 10 }}>
-                  Agregar desafío simulado
-                </div>
-                <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-                  <select value={simNewA} onChange={e => setSimNewA(e.target.value)}
-                    style={{ flex: 1, fontSize: 12, padding: '6px 8px', borderRadius: 8, border: '0.5px solid #ccc', minWidth: 120 }}>
-                    <option value="">Jugador A…</option>
-                    {activePlayers.filter(p => p.id !== simNewB).map(p => (
-                      <option key={p.id} value={p.id}>#{p.posicion} {p.nombre} {p.apellido}</option>
-                    ))}
-                  </select>
-                  <select value={simNewB} onChange={e => setSimNewB(e.target.value)}
-                    style={{ flex: 1, fontSize: 12, padding: '6px 8px', borderRadius: 8, border: '0.5px solid #ccc', minWidth: 120 }}>
-                    <option value="">Jugador B…</option>
-                    {activePlayers.filter(p => p.id !== simNewA).map(p => (
-                      <option key={p.id} value={p.id}>#{p.posicion} {p.nombre} {p.apellido}</option>
-                    ))}
-                  </select>
-                </div>
-                <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
-                  <button style={bSim(simNewGanador === 'challenger')} onClick={() => setSimNewGanador(simNewGanador === 'challenger' ? null : 'challenger')}>Gana A</button>
-                  <button style={bSim(simNewGanador === 'challenged')} onClick={() => setSimNewGanador(simNewGanador === 'challenged' ? null : 'challenged')}>Gana B</button>
-                  <button style={bSim(simNewGanador === null)} onClick={() => setSimNewGanador(null)}>Sin jugar</button>
-                </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button className="btn" onClick={() => { setSimAddModal(false); setSimNewA(''); setSimNewB(''); setSimNewGanador(null) }}>Cancelar</button>
-                  <button className="btn btn-accept" disabled={!simNewA || !simNewB}
-                    onClick={() => {
-                      const pA = players.find(p => p.id === simNewA)
-                      const pB = players.find(p => p.id === simNewB)
-                      setSimRows(rows => [...rows, {
-                        id: `sim-${Date.now()}`,
-                        challenger_id: simNewA,
-                        challenged_id: simNewB,
-                        challengerName: `${pA.nombre} ${pA.apellido}`,
-                        challengedName: `${pB.nombre} ${pB.apellido}`,
-                        challengerPos: pA.posicion,
-                        challengedPos: pB.posicion,
-                        ganador: simNewGanador,
-                        status: 'invented',
-                        isInvented: true,
-                        created_at: new Date().toISOString(),
-                      }])
-                      setSimAddModal(false); setSimNewA(''); setSimNewB(''); setSimNewGanador(null)
-                    }}>
-                    Añadir
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <button className="btn" style={{ width: '100%', marginBottom: 10, fontSize: 12 }}
-                onClick={() => { setSimAddModal(true); setSimNewA(''); setSimNewB(''); setSimNewGanador(null) }}>
-                + Agregar desafío simulado
-              </button>
-            )}
-
-            {simCandidatos.length > 0 && (
-              <div className="card" style={{ marginBottom: 10 }}>
-                <div style={{ fontSize: 11, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
-                  Congelar inactividad ({simFrozenIds.length})
-                </div>
-                {simCandidatos.map(c => (
-                  <label key={c.id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '6px 0', borderBottom: '0.5px solid #f0efe8', cursor: 'pointer' }}>
-                    <input type="checkbox"
-                      checked={simFrozenIds.includes(c.id)}
-                      onChange={e => setSimFrozenIds(ids => e.target.checked ? [...ids, c.id] : ids.filter(x => x !== c.id))} />
-                    <span style={{ fontSize: 12 }}>{c.nombre}</span>
-                  </label>
-                ))}
-              </div>
-            )}
-
-            <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-              <button className="btn btn-accept" style={{ flex: 1 }} onClick={runSim}>Simular →</button>
-              <button className="btn" onClick={() => { setSimRows(initSimRows()); setSimResult(null); setSimAddModal(false) }}>Limpiar</button>
-            </div>
-
-            {simResult && (
-              <div>
-                <div style={{ fontSize: 11, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
-                  Resultado simulado — semana {(simResult.cfg?.semana || 0) + 1}
-                </div>
-
-                <div className="card" style={{ marginBottom: 10 }}>
-                  <div style={{ fontSize: 11, fontWeight: 500, color: '#6b6b6b', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
-                    Movimientos ({simResult.movements.length})
-                  </div>
-                  {simResult.movements.length === 0
-                    ? <div style={{ fontSize: 12, color: '#888' }}>Sin cambios de posiciones.</div>
-                    : simResult.movements.map((m, i) => (
-                      <div key={i} style={{ display: 'flex', gap: 8, padding: '6px 0', borderBottom: '0.5px solid #eee', alignItems: 'flex-start' }}>
-                        <span style={{ fontSize: 12, fontWeight: 500, color: m.delta > 0 ? '#3B6D11' : '#A32D2D', flexShrink: 0, width: 32 }}>
-                          {m.delta > 0 ? `↑${m.delta}` : `↓${Math.abs(m.delta)}`}
-                        </span>
-                        <div style={{ flex: 1, fontSize: 12 }}>
-                          <span style={{ fontWeight: 500 }}>{m.nombre}</span>
-                          <span style={{ color: '#888' }}> #{m.desde} → #{m.hasta}</span>
-                          <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>{m.motivo}</div>
-                        </div>
-                      </div>
-                    ))
-                  }
-                </div>
-
-                {simResult.notas.length > 0 && (
-                  <div className="card" style={{ marginBottom: 10 }}>
-                    <div style={{ fontSize: 11, fontWeight: 500, color: '#6b6b6b', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
-                      Notas ({simResult.notas.length})
-                    </div>
-                    {simResult.notas.map((n, i) => (
-                      <div key={i} style={{ fontSize: 12, color: '#666', padding: '4px 0', display: 'flex', gap: 6 }}>
-                        <i className="ti ti-info-circle" style={{ fontSize: 13, flexShrink: 0, color: '#888' }} aria-hidden="true" />
-                        {n}
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                <div className="card" style={{ marginBottom: 10 }}>
-                  <div style={{ fontSize: 11, fontWeight: 500, color: '#6b6b6b', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
-                    Ranking resultante
-                  </div>
-                  {simResult.sim.map(p => {
-                    const orig = simResult.originalPos[p.id]
-                    const delta = orig - p.posicion
-                    return (
-                      <div key={p.id} style={{ display: 'flex', gap: 8, padding: '5px 0', borderBottom: '0.5px solid #f0efe8', alignItems: 'center' }}>
-                        <span style={{ width: 22, fontSize: 12, color: '#888', textAlign: 'center' }}>{p.posicion}</span>
-                        <span style={{ flex: 1, fontSize: 12 }}>{p.nombre} {p.apellido}</span>
-                        <span style={{ fontSize: 11, width: 30, textAlign: 'right', color: delta > 0 ? '#3B6D11' : delta < 0 ? '#A32D2D' : '#bbb' }}>
-                          {delta > 0 ? `↑${delta}` : delta < 0 ? `↓${Math.abs(delta)}` : '—'}
-                        </span>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-        )
-      })()}
+        </div>
+      )}
 
       {/* ── MODALS ── */}
+
+      {/* Corregir resultado (admin) */}
+      {corregirModal && (
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setCorregirModal(null) }}>
+          <div className="modal">
+            <h3>Corregir resultado</h3>
+            <p style={{ fontSize: 13, color: '#555', marginBottom: 4 }}>{corregirModal.challenger?.nombre} vs {corregirModal.challenged?.nombre}</p>
+            <p style={{ fontSize: 12, color: '#888', marginBottom: 12 }}>Revierte y reaplica el ranking con el nuevo marcador ({FORMATOS[v2cfg?.formato_partido || 'set9']?.label}; salta ventana y validación).</p>
+            <SetsInput formato={v2cfg?.formato_partido || 'set9'} sets={corregirModal.sets || emptySets()}
+              setSets={(next) => setCorregirModal(m => ({ ...m, sets: next }))}
+              nameA={corregirModal.challenger?.nombre} nameB={corregirModal.challenged?.nombre} />
+            <div className="modal-actions" style={{ marginTop: 10 }}>
+              <button className="btn" onClick={() => setCorregirModal(null)}>Cancelar</button>
+              <button className="btn btn-accept" onClick={saveCorregir}>Corregir</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Ajustar posición (admin) */}
+      {ajustarModal && (
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setAjustarModal(null) }}>
+          <div className="modal">
+            <h3>Ajustar posición</h3>
+            <p style={{ fontSize: 13, color: '#555', marginBottom: 12 }}>{ajustarModal.nombre} — actual #{ajustarModal.actual}</p>
+            <div className="form-row"><label>Nueva posición</label>
+              <input type="number" min="1" value={ajustarModal.nueva_pos} onChange={e => setAjustarModal(m => ({ ...m, nueva_pos: e.target.value }))} />
+            </div>
+            <div className="form-row"><label>Motivo (obligatorio)</label>
+              <input type="text" value={ajustarModal.motivo} onChange={e => setAjustarModal(m => ({ ...m, motivo: e.target.value }))} placeholder="Ej: corrección por error de carga" />
+            </div>
+            <div className="modal-actions">
+              <button className="btn" onClick={() => setAjustarModal(null)}>Cancelar</button>
+              <button className="btn btn-accept" onClick={saveAjustar}>Mover</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Ingresar resultado */}
       {resultModal && (
@@ -1266,33 +852,11 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
               </div>
             </div>
 
-            <div style={{ display: 'flex', gap: 8 }}>
-              <div className="form-row" style={{ flex: 1 }}>
-                <label>{resultModal.challenger?.nombre}</label>
-                <input type="number" min="0" max="9" value={resultModal.score_a} onChange={e => setResultModal(m => ({ ...m, score_a: e.target.value }))} />
-              </div>
-              <div className="form-row" style={{ flex: 1 }}>
-                <label>{resultModal.challenged?.nombre}</label>
-                <input type="number" min="0" max="9" value={resultModal.score_b} onChange={e => setResultModal(m => ({ ...m, score_b: e.target.value }))} />
-              </div>
-            </div>
-            {((String(resultModal.score_a) === '9' && String(resultModal.score_b) === '8') ||
-              (String(resultModal.score_a) === '8' && String(resultModal.score_b) === '9')) && (
-              <div style={{ background: '#FAEEDA', borderRadius: 8, padding: '8px 10px', marginBottom: 10 }}>
-                <div style={{ fontSize: 12, fontWeight: 500, color: '#633806', marginBottom: 8 }}>Tiebreak 9-8</div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <div className="form-row" style={{ flex: 1 }}>
-                    <label>{resultModal.challenger?.nombre}</label>
-                    <input type="number" min="0" value={resultModal.tiebreak_a} onChange={e => setResultModal(m => ({ ...m, tiebreak_a: e.target.value }))} />
-                  </div>
-                  <div className="form-row" style={{ flex: 1 }}>
-                    <label>{resultModal.challenged?.nombre}</label>
-                    <input type="number" min="0" value={resultModal.tiebreak_b} onChange={e => setResultModal(m => ({ ...m, tiebreak_b: e.target.value }))} />
-                  </div>
-                </div>
-              </div>
-            )}
-            <div className="modal-actions">
+            <div style={{ fontSize: 11, color: '#888', marginBottom: 6 }}>Marcador · {FORMATOS[v2cfg?.formato_partido || 'set9']?.label}</div>
+            <SetsInput formato={v2cfg?.formato_partido || 'set9'} sets={resultModal.sets || emptySets()}
+              setSets={(next) => setResultModal(m => ({ ...m, sets: next }))}
+              nameA={resultModal.challenger?.nombre} nameB={resultModal.challenged?.nombre} />
+            <div className="modal-actions" style={{ marginTop: 10 }}>
               <button className="btn" onClick={() => setResultModal(null)}>Cancelar</button>
               <button className="btn btn-accept" onClick={saveResult}>Guardar</button>
             </div>
@@ -1332,67 +896,6 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
             <div className="modal-actions">
               <button className="btn" onClick={() => setCancelModal(null)}>Volver</button>
               <button className="btn btn-warn" onClick={cancelMatch}>Confirmar cancelación</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Editar resultado */}
-      {editResultModal && (
-        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setEditResultModal(null) }}>
-          <div className="modal">
-            <h3>Editar resultado</h3>
-            <p style={{ fontSize: 13, color: '#555', marginBottom: 12 }}>{editResultModal.challenger?.nombre} vs {editResultModal.challenged?.nombre}</p>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <div className="form-row" style={{ flex: 1 }}>
-                <label>{editResultModal.challenger?.nombre}</label>
-                <input type="number" min="0" max="9" value={editResultModal.score_a} onChange={e => setEditResultModal(m => ({ ...m, score_a: e.target.value }))} />
-              </div>
-              <div className="form-row" style={{ flex: 1 }}>
-                <label>{editResultModal.challenged?.nombre}</label>
-                <input type="number" min="0" max="9" value={editResultModal.score_b} onChange={e => setEditResultModal(m => ({ ...m, score_b: e.target.value }))} />
-              </div>
-            </div>
-            {((String(editResultModal.score_a) === '9' && String(editResultModal.score_b) === '8') ||
-              (String(editResultModal.score_a) === '8' && String(editResultModal.score_b) === '9')) && (
-              <div style={{ background: '#FAEEDA', borderRadius: 8, padding: '8px 10px', marginBottom: 10 }}>
-                <div style={{ fontSize: 12, fontWeight: 500, color: '#633806', marginBottom: 8 }}>Tiebreak 9-8</div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <div className="form-row" style={{ flex: 1 }}>
-                    <label>{editResultModal.challenger?.nombre}</label>
-                    <input type="number" min="0" value={editResultModal.tiebreak_a || ''} onChange={e => setEditResultModal(m => ({ ...m, tiebreak_a: e.target.value }))} />
-                  </div>
-                  <div className="form-row" style={{ flex: 1 }}>
-                    <label>{editResultModal.challenged?.nombre}</label>
-                    <input type="number" min="0" value={editResultModal.tiebreak_b || ''} onChange={e => setEditResultModal(m => ({ ...m, tiebreak_b: e.target.value }))} />
-                  </div>
-                </div>
-              </div>
-            )}
-            <div className="form-row"><label>Ganador</label>
-              <select value={editResultModal.ganador} onChange={e => setEditResultModal(m => ({ ...m, ganador: e.target.value }))}>
-                <option value="challenger">{editResultModal.challenger?.nombre} {editResultModal.challenger?.apellido}</option>
-                <option value="challenged">{editResultModal.challenged?.nombre} {editResultModal.challenged?.apellido}</option>
-              </select>
-            </div>
-            <div className="form-row"><label>Cancha</label>
-              <select value={editResultModal.slot_court || ''} onChange={e => setEditResultModal(m => ({ ...m, slot_court: e.target.value }))}>
-                <option value="">Sin especificar</option>
-                {courts.map(c => <option key={c.id} value={c.id}>{c.nombre} ({c.surface})</option>)}
-              </select>
-              {(() => { const court = editResultModal.slot_court; if (!court) return null; const isHard = court === 'c3'; return (<span style={{ fontSize: 11, color: '#888', display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 }}><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: isHard ? '#60B8E0' : '#E8712A' }} />{isHard ? 'Cancha dura' : 'Arcilla'}</span>) })()}
-            </div>
-            <div className="form-row"><label>Fecha (dejar vacío para no cambiar)</label>
-              <input type="date" value={(() => {
-                const d = editResultModal.slot_day_edit || ''
-                return d
-              })()} 
-                onChange={e => setEditResultModal(m => ({ ...m, slot_day_edit: e.target.value }))} />
-              {editResultModal.slot_day && <div style={{ fontSize: 11, color: '#888', marginTop: 3 }}>Fecha actual: {fmtDate(editResultModal.slot_day)}</div>}
-            </div>
-            <div className="modal-actions">
-              <button className="btn" onClick={() => setEditResultModal(null)}>Cancelar</button>
-              <button className="btn btn-accept" onClick={saveEditResult}>Guardar</button>
             </div>
           </div>
         </div>
@@ -1509,107 +1012,6 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
             <div className="modal-actions">
               <button className="btn" onClick={() => setNewChallengeModal(null)}>Cancelar</button>
               <button className="btn btn-accept" onClick={createChallengeAdmin}>Crear</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Vista previa de publicación */}
-      {freezeStep && (
-        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setFreezeStep(null) }}>
-          <div className="modal" style={{ maxHeight: '80vh', overflowY: 'auto' }}>
-            <h3>Perdonar inactividad</h3>
-
-            {freezeStep.candidatos.length === 0 ? (
-              <p style={{ fontSize: 13, color: '#888', background: '#f5f4f0', borderRadius: 8, padding: '10px 12px', marginBottom: 12 }}>
-                Nadie será penalizado esta semana.
-              </p>
-            ) : (
-              <>
-                <p style={{ fontSize: 13, color: '#555', marginBottom: 12 }}>
-                  Estos jugadores no jugaron esta semana y sumarán inactividad. ¿Perdonar a alguno?
-                </p>
-                <div style={{ marginBottom: 8 }}>
-                  {freezeStep.candidatos.map(c => (
-                    <label key={c.id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '8px 0', borderBottom: '0.5px solid #eee', cursor: 'pointer' }}>
-                      <input type="checkbox"
-                        checked={frozenIds.includes(c.id)}
-                        onChange={e => setFrozenIds(ids => e.target.checked ? [...ids, c.id] : ids.filter(x => x !== c.id))} />
-                      <span style={{ fontSize: 13 }}>{c.nombre}</span>
-                    </label>
-                  ))}
-                </div>
-              </>
-            )}
-
-            <div className="modal-actions">
-              <button className="btn" onClick={() => setFreezeStep(null)}>Cancelar</button>
-              <button className="btn btn-accept" onClick={async () => {
-                const plan = await computePublishPlan(frozenIds)   // 2ª pasada CON congelados
-                setFreezeStep(null)
-                setPublishPreview(plan)                            // → abre la preview existente
-              }}>Continuar</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {publishPreview && (
-        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setPublishPreview(null) }}>
-          <div className="modal" style={{ maxHeight: '80vh', overflowY: 'auto' }}>
-            <h3>Vista previa — Semana {publishPreview.cfg?.semana || '—'}</h3>
-            <p style={{ fontSize: 12, color: '#888', marginBottom: 12 }}>
-              Revisa los movimientos antes de publicar. Nada se aplica hasta que confirmes con tu PIN.
-            </p>
-
-            {publishPreview.movements.length === 0 ? (
-              <div style={{ fontSize: 13, color: '#888', background: '#f5f4f0', borderRadius: 8, padding: '10px 12px', marginBottom: 10 }}>
-                Sin cambios de posiciones esta semana.
-              </div>
-            ) : (
-              <div style={{ marginBottom: 10 }}>
-                <div style={{ fontSize: 12, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>
-                  Movimientos ({publishPreview.movements.length})
-                </div>
-                {publishPreview.movements.map((m, i) => (
-                  <div key={i} style={{ display: 'flex', gap: 8, padding: '7px 0', borderBottom: '0.5px solid #eee', alignItems: 'flex-start' }}>
-                    <span style={{ fontSize: 12, fontWeight: 500, color: m.delta > 0 ? '#3B6D11' : '#A32D2D', flexShrink: 0, width: 30 }}>
-                      {m.delta > 0 ? `↑${m.delta}` : `↓${Math.abs(m.delta)}`}
-                    </span>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 13, fontWeight: 500 }}>{m.nombre} <span style={{ color: '#888', fontWeight: 400 }}>#{m.desde} → #{m.hasta}</span></div>
-                      <div style={{ fontSize: 12, color: '#888', marginTop: 1 }}>{m.motivo}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {publishPreview.notas.length > 0 && (
-              <div style={{ marginBottom: 10 }}>
-                <div style={{ fontSize: 12, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>
-                  Notas
-                </div>
-                {publishPreview.notas.map((n, i) => (
-                  <div key={i} style={{ fontSize: 12, color: '#666', padding: '4px 0', display: 'flex', gap: 6 }}>
-                    <i className="ti ti-info-circle" style={{ fontSize: 14, flexShrink: 0, marginTop: 1, color: '#888' }} aria-hidden="true" />
-                    <span>{n}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div style={{ fontSize: 11, color: '#888', marginBottom: 12 }}>
-              {publishPreview.pending.length} partido{publishPreview.pending.length !== 1 ? 's' : ''} por aplicar · {publishPreview.penaltyLog.length} penalización{publishPreview.penaltyLog.length !== 1 ? 'es' : ''} por inactividad
-            </div>
-
-            <div className="modal-actions">
-              <button className="btn" onClick={() => setPublishPreview(null)}>Cancelar</button>
-              <button className="btn btn-accept" onClick={() => {
-                const plan = publishPreview
-                setPublishPreview(null)
-                confirmWithPin(() => publishRanking(plan))
-              }}>Confirmar y publicar</button>
             </div>
           </div>
         </div>
@@ -1748,7 +1150,40 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
                 <input value={editPlayerModal.telefono || ''} onChange={e => setEditPlayerModal(m => ({ ...m, telefono: e.target.value.replace(/[^0-9]/g, '') }))} inputMode="numeric" maxLength={9} placeholder="912345678" style={{ flex: 1 }} />
               </div>
             </div>
-            <div className="form-row"><label>Posición</label><input type="number" value={editPlayerModal.posicion || ''} onChange={e => setEditPlayerModal(m => ({ ...m, posicion: e.target.value }))} /></div>
+            <div className="form-row">
+              <label>Posición</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 14 }}>{editPlayerModal.posicion != null ? `#${editPlayerModal.posicion}` : '—'}</span>
+                {editPlayerModal.activo && editPlayerModal.posicion != null && (
+                  <button className="btn" style={{ fontSize: 12, padding: '4px 10px' }}
+                    onClick={() => { setAjustarModal({ id: editPlayerModal.id, nombre: `${editPlayerModal.nombre} ${editPlayerModal.apellido}`, actual: editPlayerModal.posicion, nueva_pos: editPlayerModal.posicion, motivo: '' }); setEditPlayerModal(null) }}>
+                    Ajustar posición
+                  </button>
+                )}
+              </div>
+            </div>
+            {editPlayerModal.activo && (
+              <div className="form-row" style={{ background: '#FAEEDA', borderRadius: 8, padding: '8px 10px' }}>
+                <label style={{ color: '#633806', marginBottom: 6 }}>
+                  Reloj de inactividad: <strong>{editPlayerModal.dias_inactivo || 0} días</strong> ({editPlayerModal.semanas_inactivo || 0} sem.)
+                  {editPlayerModal.inactividad_congelada && <span style={{ marginLeft: 6, color: '#185FA5', fontWeight: 500 }}>❄ congelado</span>}
+                </label>
+                <input type="text" placeholder="Motivo (obligatorio)"
+                  value={editPlayerModal._inactMot || ''} onChange={e => setEditPlayerModal(m => ({ ...m, _inactMot: e.target.value }))} />
+                <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                  {editPlayerModal.dias_inactivo > 0 && (
+                    <button className="btn" style={{ fontSize: 12 }} onClick={savePerdonar}>Perdonar (→0)</button>
+                  )}
+                  <input type="number" min="0" placeholder="días" value={editPlayerModal._ajusteDias ?? ''}
+                    onChange={e => setEditPlayerModal(m => ({ ...m, _ajusteDias: e.target.value }))}
+                    style={{ width: 64, fontSize: 12 }} />
+                  <button className="btn" style={{ fontSize: 12 }} onClick={saveAjustarReloj}>Ajustar</button>
+                  {editPlayerModal.inactividad_congelada
+                    ? <button className="btn" style={{ fontSize: 12 }} onClick={() => saveCongelar(false)}>Descongelar</button>
+                    : <button className="btn" style={{ fontSize: 12 }} onClick={() => saveCongelar(true)}>Congelar</button>}
+                </div>
+              </div>
+            )}
             <div className="form-row" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <input type="checkbox" id="admin-check" checked={editPlayerModal.es_admin || false} onChange={e => setEditPlayerModal(m => ({ ...m, es_admin: e.target.checked }))} style={{ width: 16, height: 16 }} />
               <label htmlFor="admin-check" style={{ fontSize: 13, color: '#333', marginBottom: 0 }}>Es administrador</label>
@@ -1804,26 +1239,27 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
               {/* Activar / Inactivar */}
               {editPlayerModal.activo ? (
                 <div style={{ marginBottom: 10 }}>
-                  <button className="btn btn-warn" style={{ fontSize: 12, width: '100%' }}
-                    onClick={() => { inactivatePlayer(editPlayerModal); setEditPlayerModal(null) }}>
-                    Inactivar jugador
-                  </button>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <input placeholder="Motivo (obligatorio)" value={editPlayerModal._inactMotivo || ''}
+                      onChange={e => setEditPlayerModal(m => ({ ...m, _inactMotivo: e.target.value }))} style={{ flex: 1, fontSize: 12 }} />
+                    <button className="btn btn-warn" style={{ fontSize: 12, whiteSpace: 'nowrap' }}
+                      onClick={() => inactivatePlayer(editPlayerModal, editPlayerModal._inactMotivo)}>
+                      Inactivar
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <div style={{ marginBottom: 10 }}>
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <input
-                      type="number"
-                      placeholder="Posición (vacío = último)"
-                      value={editPlayerModal._activatePos || ''}
-                      onChange={e => setEditPlayerModal(m => ({ ...m, _activatePos: e.target.value }))}
-                      style={{ flex: 1, fontSize: 12 }}
-                    />
-                    <button className="btn btn-accept" style={{ fontSize: 12, whiteSpace: 'nowrap' }}
-                      onClick={() => { activatePlayer(editPlayerModal, editPlayerModal._activatePos); setEditPlayerModal(null) }}>
-                      Activar
-                    </button>
+                  <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+                    <input type="number" placeholder="Posición (vacío = último)" value={editPlayerModal._activatePos || ''}
+                      onChange={e => setEditPlayerModal(m => ({ ...m, _activatePos: e.target.value }))} style={{ flex: 1, fontSize: 12 }} />
+                    <input placeholder="Motivo (obligatorio)" value={editPlayerModal._activateMotivo || ''}
+                      onChange={e => setEditPlayerModal(m => ({ ...m, _activateMotivo: e.target.value }))} style={{ flex: 1, fontSize: 12 }} />
                   </div>
+                  <button className="btn btn-accept" style={{ fontSize: 12, width: '100%' }}
+                    onClick={() => activatePlayer(editPlayerModal, editPlayerModal._activatePos, editPlayerModal._activateMotivo)}>
+                    Activar jugador
+                  </button>
                 </div>
               )}
 
