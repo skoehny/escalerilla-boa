@@ -5,13 +5,11 @@ import { useSession } from '../components/SessionContext'
 
 function ini(n, a) { return ((n?.[0] || '') + (a?.[0] || '')).toUpperCase() }
 
-function inactivityTime(player, fechaInicio) {
+// Fuente ÚNICA de la inactividad: el contador incremental players.dias_inactivo
+// (NO se calcula desde fechas: así respeta el congelamiento global y las pausas).
+function inactivityTime(player) {
   if (!player?.semanas_inactivo) return null
-  const hoy = new Date(); hoy.setHours(0, 0, 0, 0)
-  const inicio = fechaInicio ? new Date(fechaInicio + 'T00:00:00') : null
-  if (inicio) inicio.setHours(0, 0, 0, 0)
-  const dias = inicio ? Math.round((hoy - inicio) / (1000 * 60 * 60 * 24)) : 0
-  return `${player.semanas_inactivo}S ${dias}D`
+  return `${player.semanas_inactivo}S ${player.dias_inactivo || 0}D`
 }
 
 function statusText(c) {
@@ -48,20 +46,26 @@ export default function JugadorPerfil() {
   const [jugador, setJugador] = useState(null)
   const [history, setHistory] = useState([])
   const [activeChallenge, setActiveChallenge] = useState(null)
-  const [weekConfig, setWeekConfig] = useState(null)
+  const [freeze, setFreeze] = useState(null)
+  const [pausedByChallenge, setPausedByChallenge] = useState(false)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => { load() }, [id])
 
   async function load() {
     try {
-      const [{ data: j }, ch, { data: cfg }] = await Promise.all([
+      const [{ data: j }, ch, { data: fz }] = await Promise.all([
         supabase.from('players').select('*').eq('id', id).single(),
         getChallenges(),
-        supabase.from('weekly_config').select('fecha_inicio').eq('id', 1).single()
+        supabase.from('reloj_freeze_log').select('*').is('descongelado_en', null).maybeSingle()
       ])
       setJugador(j)
-      setWeekConfig(cfg)
+      setFreeze(fz || null)
+      // El reloj se pausa por tener un desafío pending/accepted (mismo criterio del cron).
+      setPausedByChallenge(ch.some(c =>
+        (c.challenger_id === id || c.challenged_id === id) &&
+        (c.status === 'pending' || c.status === 'accepted')
+      ))
       const mine = ch.filter(c =>
         (c.challenger_id === id || c.challenged_id === id) && c.status === 'completed'
       ).sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
@@ -117,7 +121,7 @@ export default function JugadorPerfil() {
             {wins.length}V {history.length - wins.length}D · {history.length} partidos
           </div>
           {(() => {
-            const inactTime = inactivityTime(jugador, weekConfig?.fecha_inicio)
+            const inactTime = inactivityTime(jugador)
             return (
               <>
                 {jugador.lesionado && (
@@ -135,6 +139,25 @@ export default function JugadorPerfil() {
           })()}
         </div>
       </div>
+
+      {/* Reloj de inactividad — fuente única: contador dias_inactivo */}
+      {(() => {
+        const debutante = (jugador.victorias || 0) === 0 && (jugador.derrotas || 0) === 0
+        let estado, color
+        if (debutante) { estado = 'sin reloj (aún no debuta)'; color = '#888' }
+        else if (freeze) { estado = `congelado (${freeze.motivo})`; color = '#A32D2D' }
+        else if (jugador.inactividad_congelada) { estado = 'congelado (reloj individual)'; color = '#185FA5' }
+        else if (pausedByChallenge) { estado = 'pausado por desafío activo'; color = '#0F6E56' }
+        else { estado = 'corriendo'; color = '#888' }
+        return (
+          <div className="card" style={{ marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 13, color: '#555' }}>
+              Días de inactividad: <strong>{debutante ? '—' : (jugador.dias_inactivo || 0)}</strong>
+            </span>
+            <span style={{ fontSize: 12, color, fontWeight: 500 }}>{estado}</span>
+          </div>
+        )
+      })()}
 
       {/* Estado actual de esta semana */}
       <div className="card" style={{ marginBottom: 10 }}>

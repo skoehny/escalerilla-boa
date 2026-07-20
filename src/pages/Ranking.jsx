@@ -13,13 +13,17 @@ function fmtShortDate(d) {
   } catch { return d }
 }
 
-function playerInactivity(p, fechaInicio) {
+// Fuente ÚNICA de la inactividad: el contador incremental players.dias_inactivo
+// (NO se calcula desde fechas: así respeta el congelamiento global y las pausas).
+function playerInactivity(p) {
   if (!p.semanas_inactivo) return null
-  const hoy = new Date(); hoy.setHours(0, 0, 0, 0)
-  const inicio = fechaInicio ? new Date(fechaInicio + 'T00:00:00') : null
-  if (inicio) inicio.setHours(0, 0, 0, 0)
-  const dias = inicio ? Math.round((hoy - inicio) / (1000 * 60 * 60 * 24)) : 0
-  return `${p.semanas_inactivo}S ${dias}D`
+  return `${p.semanas_inactivo}S ${p.dias_inactivo || 0}D`
+}
+
+function fmtDM(ts) {
+  if (!ts) return ''
+  const d = new Date(ts)
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`
 }
 
 function trend(pos, prev) {
@@ -41,14 +45,16 @@ export default function Ranking() {
   const [playedThisWeek, setPlayedThisWeek] = useState(false)
   const [weekConfig, setWeekConfig] = useState(null)
   const [v2cfg, setV2cfg] = useState(null)
+  const [freeze, setFreeze] = useState(null)
 
   useEffect(() => { load() }, [])
 
   async function load() {
     try {
-      const [pl, ch, { data: cfg }, { data: cfg2 }] = await Promise.all([getPlayers(), getChallenges(), supabase.from('weekly_config').select('*').eq('id', 1).single(), supabase.from('v2_config').select('*').eq('id', 1).single()])
+      const [pl, ch, { data: cfg }, { data: cfg2 }, { data: fz }] = await Promise.all([getPlayers(), getChallenges(), supabase.from('weekly_config').select('*').eq('id', 1).single(), supabase.from('v2_config').select('*').eq('id', 1).single(), supabase.from('reloj_freeze_log').select('*').is('descongelado_en', null).maybeSingle()])
       setWeekConfig(cfg)
       setV2cfg(cfg2)
+      setFreeze(fz || null)
       setPlayers(pl)
       const active = ch.some(c =>
         (c.challenger_id === player?.id || c.challenged_id === player?.id) &&
@@ -104,6 +110,12 @@ export default function Ranking() {
     <div>
       {notif && <div className={`notif notif-${notif.type}`}><i className={`ti ti-${notif.type === 'ok' ? 'check' : 'alert-triangle'}`} aria-hidden="true" /> {notif.msg}</div>}
 
+      {freeze && (
+        <div style={{ background: '#FCEBEB', border: '1px solid #E7A6A6', color: '#A32D2D', borderRadius: 8, padding: '10px 12px', marginBottom: 10, fontSize: 13, fontWeight: 500 }}>
+          ⏸ Reloj de inactividad congelado desde {fmtDM(freeze.congelado_desde)} — Motivo: {freeze.motivo}
+        </div>
+      )}
+
       <div style={{ background: '#E1F5EE', borderRadius: 8, padding: '10px 12px', marginBottom: 10 }}>
         <div style={{ fontSize: 14, fontWeight: 600, color: '#0F6E56', marginBottom: 4 }}>Semana {weekConfig?.semana || '—'}</div>
         <div style={{ fontSize: 12, color: '#555' }}>Cierra mié {fmtShortDate(weekConfig?.fecha_cierre)} · próx. actualización jue {fmtShortDate(weekConfig?.fecha_ranking)} 11:59</div>
@@ -139,7 +151,7 @@ export default function Ranking() {
         {players.map(p => {
           const isMe = p.id === player?.id
           const numColor = p.posicion <= 3 ? '#D85A30' : '#888'
-          const inact = playerInactivity(p, weekConfig?.fecha_inicio)
+          const inact = playerInactivity(p)
           const targetHasActive = challenges.some(c =>
             (c.challenger_id === p.id || c.challenged_id === p.id) &&
             (c.status === 'pending' || c.status === 'accepted' ||

@@ -66,6 +66,9 @@ export default function Admin() {
   const [cfgForm, setCfgForm] = useState(null)
   const [cfgError, setCfgError] = useState(null)
   const [relojResult, setRelojResult] = useState(null)
+  const [freeze, setFreeze] = useState(null)            // freeze global vigente (o null)
+  const [freezeHistory, setFreezeHistory] = useState([])
+  const [freezeModal, setFreezeModal] = useState(null)  // { motivo }
 
   useEffect(() => { load() }, [])
 
@@ -83,7 +86,22 @@ export default function Admin() {
         setCfgError(null)
       }
       setV2cfg(cfg); setCfgForm(cfg)
+      const { data: fzh } = await supabase.from('reloj_freeze_log').select('*').order('congelado_desde', { ascending: false })
+      setFreezeHistory(fzh || [])
+      setFreeze((fzh || []).find(f => f.descongelado_en === null) || null)
     } finally { setLoading(false) }
+  }
+
+  function fmtFreezeDate(ts) {
+    if (!ts) return ''
+    try { return new Date(ts).toLocaleDateString('es-CL', { day: 'numeric', month: 'short', year: 'numeric' }) } catch { return ts }
+  }
+  function freezeDias(f) {
+    const desde = new Date(f.congelado_desde)
+    const hasta = f.descongelado_en ? new Date(f.descongelado_en) : new Date()
+    const d0 = Date.UTC(desde.getFullYear(), desde.getMonth(), desde.getDate())
+    const d1 = Date.UTC(hasta.getFullYear(), hasta.getMonth(), hasta.getDate())
+    return Math.max(0, Math.round((d1 - d0) / 86400000))
   }
 
   function ntf(msg, type = 'ok') { setNotif({ msg, type }); setTimeout(() => setNotif(null), 4000) }
@@ -151,13 +169,39 @@ export default function Admin() {
       const { data, error } = await supabase.rpc('cron_diario')
       if (error) throw error
       setRelojResult(data)
-      if (data?.skipped === 'ya_corrio_hoy') {
+      if (data?.skipped === 'reloj_congelado') {
+        ntf(`Reloj congelado (${data.motivo}) — descongela para procesar.`, 'warn')
+      } else if (data?.skipped === 'ya_corrio_hoy') {
         ntf(`El reloj ya corrió hoy (${data.fecha}).`, 'warn')
       } else {
         ntf('Reloj de inactividad corrido.')
         load()
       }
     } catch (err) { ntf(err.message || 'No se pudo correr el reloj.', 'err') }
+  }
+
+  // ── Congelamiento GLOBAL del reloj de inactividad ────────────
+  async function congelarGlobal(motivo) {
+    const m = (motivo || '').trim()
+    if (!m) { ntf('Indica el motivo del congelamiento.', 'err'); return }
+    try {
+      const admin = `${sessionPlayer?.nombre || ''} ${sessionPlayer?.apellido || ''}`.trim()
+      const { error } = await supabase.rpc('congelar_reloj_global', { p_motivo: m, p_admin: admin })
+      if (error) throw error
+      setFreezeModal(null)
+      ntf('Reloj de inactividad congelado.')
+      load()
+    } catch (err) { ntf(err.message || 'No se pudo congelar.', 'err') }
+  }
+
+  async function descongelarGlobal() {
+    try {
+      const admin = `${sessionPlayer?.nombre || ''} ${sessionPlayer?.apellido || ''}`.trim()
+      const { data, error } = await supabase.rpc('descongelar_reloj_global', { p_admin: admin })
+      if (error) throw error
+      ntf(`Reloj descongelado — ${data?.dias_congelados ?? 0} día(s) congelados · ${data?.desafios_extendidos ?? 0} desafío(s) extendidos.`)
+      load()
+    } catch (err) { ntf(err.message || 'No se pudo descongelar.', 'err') }
   }
 
   // ── Ranking ──────────────────────────────────────────────
@@ -485,7 +529,7 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
 
   if (loading) return <p style={{ color: '#888', fontSize: 13, padding: 24 }}>Cargando...</p>
 
-  const tabs = ['acciones', 'desafíos', 'resultados', 'jugadores', 'config']
+  const tabs = ['acciones', 'desafíos', 'resultados', 'jugadores', 'historial', 'config']
 
   return (
     <div>
@@ -615,13 +659,38 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
 
             {/* ── Mantenimiento ── */}
             <div style={{ fontSize: 12, fontWeight: 500, color: '#6b6b6b', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 10 }}>Mantenimiento</div>
-            <button style={{ width: '100%', background: '#eef1f7', border: '1px solid #b9c6e0', color: '#274b8a', borderRadius: 10, padding: '14px 8px', fontSize: 14, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}
-              onClick={() => confirmWithPin(runRelojAhora)}>
+
+            {/* Congelar / Descongelar el reloj (global) */}
+            {!freeze ? (
+              <button style={{ width: '100%', background: '#FDECEA', border: '1px solid #F0A9A0', color: '#B4291C', borderRadius: 10, padding: '14px 8px', fontSize: 14, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit', marginBottom: 10 }}
+                onClick={() => setFreezeModal({ motivo: '' })}>
+                <i className="ti ti-snowflake" style={{ verticalAlign: -2, marginRight: 6 }} aria-hidden="true" />Congelar reloj de inactividad
+              </button>
+            ) : (
+              <>
+                <div style={{ background: '#FCEBEB', border: '1px solid #E7A6A6', color: '#A32D2D', borderRadius: 8, padding: '10px 12px', marginBottom: 10, fontSize: 12 }}>
+                  ⏸ Congelado desde {fmtFreezeDate(freeze.congelado_desde)} — Motivo: <strong>{freeze.motivo}</strong>
+                </div>
+                <button style={{ width: '100%', background: '#E1F5EE', border: '1px solid #9FE1CB', color: '#0F6E56', borderRadius: 10, padding: '14px 8px', fontSize: 14, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit', marginBottom: 10 }}
+                  onClick={() => { if (window.confirm(`¿Descongelar el reloj de inactividad?\n\nMotivo: ${freeze.motivo}\nDesde: ${fmtFreezeDate(freeze.congelado_desde)}\n\nSe extenderán las fechas límite de los desafíos vigentes por los días congelados.`)) descongelarGlobal() }}>
+                  <i className="ti ti-player-play" style={{ verticalAlign: -2, marginRight: 6 }} aria-hidden="true" />Descongelar reloj
+                </button>
+              </>
+            )}
+
+            <button disabled={!!freeze} style={{ width: '100%', background: '#eef1f7', border: '1px solid #b9c6e0', color: '#274b8a', borderRadius: 10, padding: '14px 8px', fontSize: 14, fontWeight: 500, cursor: freeze ? 'not-allowed' : 'pointer', fontFamily: 'inherit', opacity: freeze ? 0.5 : 1 }}
+              onClick={() => { if (!freeze) confirmWithPin(runRelojAhora) }}>
               <i className="ti ti-clock-play" style={{ verticalAlign: -2, marginRight: 6 }} aria-hidden="true" />Correr reloj de inactividad ahora
             </button>
-            <p style={{ fontSize: 11, color: '#888', marginTop: 6 }}>
-              Procesa la inactividad del día: expira desafíos vencidos, suma un día a los inactivos y aplica penalizaciones al cruzar umbrales (14/21/28…). Si ya corrió hoy, no hace nada.
-            </p>
+            {freeze ? (
+              <p style={{ fontSize: 11, color: '#A32D2D', marginTop: 6 }}>
+                Reloj congelado ({freeze.motivo}) — descongela para procesar.
+              </p>
+            ) : (
+              <p style={{ fontSize: 11, color: '#888', marginTop: 6 }}>
+                Procesa la inactividad del día: expira desafíos vencidos, suma un día a los inactivos y aplica penalizaciones al cruzar umbrales (14/21/28…). Si ya corrió hoy, no hace nada.
+              </p>
+            )}
             {relojResult && (
               <div className="card" style={{ padding: 12, marginTop: 8, fontSize: 12 }}>
                 {relojResult.skipped === 'ya_corrio_hoy' ? (
@@ -800,6 +869,51 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
               </div>
             </>
           )}
+        </div>
+      )}
+
+      {/* HISTORIAL */}
+      {activeTab === 'historial' && (
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>Congelamientos del reloj</div>
+          <div className="card" style={{ padding: 0, overflowX: 'auto' }}>
+            {freezeHistory.length === 0 ? (
+              <p style={{ fontSize: 13, color: '#888', textAlign: 'center', padding: 24 }}>Sin congelamientos registrados.</p>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr style={{ textAlign: 'left', color: '#888', borderBottom: '1px solid #ecece4' }}>
+                    <th style={{ padding: '8px 10px', fontWeight: 500 }}>Desde</th>
+                    <th style={{ padding: '8px 10px', fontWeight: 500 }}>Hasta</th>
+                    <th style={{ padding: '8px 10px', fontWeight: 500, textAlign: 'center' }}>Días</th>
+                    <th style={{ padding: '8px 10px', fontWeight: 500 }}>Motivo</th>
+                    <th style={{ padding: '8px 10px', fontWeight: 500 }}>Congeló</th>
+                    <th style={{ padding: '8px 10px', fontWeight: 500 }}>Descongeló</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {freezeHistory.map(f => {
+                    const vigente = f.descongelado_en === null
+                    const dias = f.dias_congelados != null ? f.dias_congelados : freezeDias(f)
+                    return (
+                      <tr key={f.id} style={{ borderBottom: '1px solid #f3f2ed', background: vigente ? '#FCEBEB' : 'transparent' }}>
+                        <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>{fmtFreezeDate(f.congelado_desde)}</td>
+                        <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>
+                          {vigente
+                            ? <span className="badge badge-red" style={{ fontSize: 10 }}>VIGENTE</span>
+                            : fmtFreezeDate(f.descongelado_en)}
+                        </td>
+                        <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 500 }}>{dias}{vigente ? '+' : ''}</td>
+                        <td style={{ padding: '8px 10px' }}>{f.motivo}</td>
+                        <td style={{ padding: '8px 10px', color: '#888' }}>{f.congelado_por || '—'}</td>
+                        <td style={{ padding: '8px 10px', color: '#888' }}>{f.descongelado_por || (vigente ? '—' : '—')}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
         </div>
       )}
 
@@ -1156,6 +1270,27 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
             <div className="modal-actions">
               <button className="btn" onClick={() => setNewPlayerModal(null)}>Cancelar</button>
               <button className="btn btn-accept" onClick={() => createPlayer()}>Agregar y enviar invitación</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Congelar reloj global */}
+      {freezeModal && (
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setFreezeModal(null) }}>
+          <div className="modal">
+            <h3>Congelar reloj de inactividad</h3>
+            <p style={{ fontSize: 12, color: '#888', marginBottom: 12 }}>
+              Mientras esté congelado, el proceso diario no suma días, no penaliza ni expira desafíos. Al descongelar se extienden las fechas límite de los desafíos vigentes por los días congelados.
+            </p>
+            <div className="form-row"><label>Motivo</label>
+              <input autoFocus value={freezeModal.motivo}
+                onChange={e => setFreezeModal(m => ({ ...m, motivo: e.target.value }))}
+                placeholder="Ej: lluvia / vacaciones de invierno" />
+            </div>
+            <div className="modal-actions">
+              <button className="btn" onClick={() => setFreezeModal(null)}>Cancelar</button>
+              <button className="btn btn-warn" onClick={() => congelarGlobal(freezeModal.motivo)}>Congelar</button>
             </div>
           </div>
         </div>
