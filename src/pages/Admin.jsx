@@ -69,6 +69,8 @@ export default function Admin() {
   const [freeze, setFreeze] = useState(null)            // freeze global vigente (o null)
   const [freezeHistory, setFreezeHistory] = useState([])
   const [freezeModal, setFreezeModal] = useState(null)  // { motivo }
+  const [postUnfreeze, setPostUnfreeze] = useState(null) // { dias } tras descongelar (para aviso WA)
+  const [weekCfg, setWeekCfg] = useState(null)          // weekly_config (rango de la semana para el resumen)
 
   useEffect(() => { load() }, [])
 
@@ -89,12 +91,25 @@ export default function Admin() {
       const { data: fzh } = await supabase.from('reloj_freeze_log').select('*').order('congelado_desde', { ascending: false })
       setFreezeHistory(fzh || [])
       setFreeze((fzh || []).find(f => f.descongelado_en === null) || null)
+      const { data: wk } = await supabase.from('weekly_config').select('*').eq('id', 1).single()
+      setWeekCfg(wk || null)
     } finally { setLoading(false) }
   }
 
   function fmtFreezeDate(ts) {
     if (!ts) return ''
     try { return new Date(ts).toLocaleDateString('es-CL', { day: 'numeric', month: 'short', year: 'numeric' }) } catch { return ts }
+  }
+  // DD/MM para los mensajes de WhatsApp
+  function fmtDM(ts) {
+    if (!ts) return ''
+    const d = new Date(ts)
+    return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`
+  }
+  // Compartir por WhatsApp (mismo patrón que "Recordatorio"/"Resumen WA")
+  function shareWA(msg) {
+    if (navigator.share) { navigator.share({ text: msg }).catch(() => {}) }
+    else { navigator.clipboard.writeText(msg); ntf('Mensaje copiado.') }
   }
   function freezeDias(f) {
     const desde = new Date(f.congelado_desde)
@@ -189,6 +204,7 @@ export default function Admin() {
       const { error } = await supabase.rpc('congelar_reloj_global', { p_motivo: m, p_admin: admin })
       if (error) throw error
       setFreezeModal(null)
+      setPostUnfreeze(null)
       ntf('Reloj de inactividad congelado.')
       load()
     } catch (err) { ntf(err.message || 'No se pudo congelar.', 'err') }
@@ -199,9 +215,19 @@ export default function Admin() {
       const admin = `${sessionPlayer?.nombre || ''} ${sessionPlayer?.apellido || ''}`.trim()
       const { data, error } = await supabase.rpc('descongelar_reloj_global', { p_admin: admin })
       if (error) throw error
-      ntf(`Reloj descongelado — ${data?.dias_congelados ?? 0} día(s) congelados · ${data?.desafios_extendidos ?? 0} desafío(s) extendidos.`)
+      const dias = data?.dias_congelados ?? 0
+      setPostUnfreeze({ dias })   // habilita el aviso WA de reactivación
+      ntf(`Reloj descongelado — ${dias} día(s) congelados. Los plazos ya se aplazaron día a día.`)
       load()
     } catch (err) { ntf(err.message || 'No se pudo descongelar.', 'err') }
+  }
+
+  // ── Mensajes de WhatsApp del congelamiento ───────────────────
+  function msgCongelado() {
+    return `*Escalerilla 🎾*\n\n⏸️ Reloj de inactividad *congelado* desde hoy ${fmtDM(freeze?.congelado_desde)}\nMotivo: ${freeze?.motivo}\n\nNo corren días de inactividad y los plazos de desafíos se aplazan día a día.`
+  }
+  function msgReactivado(dias) {
+    return `*Escalerilla 🎾*\n\n▶️ Reloj de inactividad *reactivado* desde hoy ${fmtDM(new Date())} (${dias} ${dias === 1 ? 'día' : 'días'} congelados)`
   }
 
   // ── Ranking ──────────────────────────────────────────────
@@ -607,6 +633,16 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
                   const completed = challenges.filter(c => c.status === 'completed' && c.ranking_applied === false)
                   const nm = p => `${p?.nombre || ''} ${p?.apellido || ''}`.trim()
                   let msg = '*Escalerilla 🎾 — Semana activa*\n\n'
+                  // Freeze solapado con la semana (si lo hubo)
+                  const ws = weekCfg?.fecha_inicio ? new Date(weekCfg.fecha_inicio + 'T00:00:00') : null
+                  if (ws) {
+                    const fz = freezeHistory.find(f => (f.descongelado_en ? new Date(f.descongelado_en) : new Date()) >= ws)
+                    if (fz) {
+                      msg += fz.descongelado_en
+                        ? `⏸️ Reloj congelado del ${fmtDM(fz.congelado_desde)} al ${fmtDM(fz.descongelado_en)} (${fz.motivo})\n\n`
+                        : `⏸️ Reloj congelado desde el ${fmtDM(fz.congelado_desde)} (${fz.motivo}) — vigente\n\n`
+                    }
+                  }
                   if (pending.length) {
                     msg += '⏳ *Pendientes de aceptación:*\n'
                     pending.forEach(c => {
@@ -670,12 +706,34 @@ Usa tu número de WhatsApp para registrarte y completar tu perfil.`
               <>
                 <div style={{ background: '#FCEBEB', border: '1px solid #E7A6A6', color: '#A32D2D', borderRadius: 8, padding: '10px 12px', marginBottom: 10, fontSize: 12 }}>
                   ⏸ Congelado desde {fmtFreezeDate(freeze.congelado_desde)} — Motivo: <strong>{freeze.motivo}</strong>
+                  <div style={{ marginTop: 4, color: '#8a4b4b' }}>Los plazos de desafíos se aplazan +1 día por cada día congelado.</div>
                 </div>
-                <button style={{ width: '100%', background: '#E1F5EE', border: '1px solid #9FE1CB', color: '#0F6E56', borderRadius: 10, padding: '14px 8px', fontSize: 14, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit', marginBottom: 10 }}
-                  onClick={() => { if (window.confirm(`¿Descongelar el reloj de inactividad?\n\nMotivo: ${freeze.motivo}\nDesde: ${fmtFreezeDate(freeze.congelado_desde)}\n\nSe extenderán las fechas límite de los desafíos vigentes por los días congelados.`)) descongelarGlobal() }}>
-                  <i className="ti ti-player-play" style={{ verticalAlign: -2, marginRight: 6 }} aria-hidden="true" />Descongelar reloj
-                </button>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
+                  <button style={{ background: '#E1F5EE', border: '1px solid #9FE1CB', color: '#0F6E56', borderRadius: 10, padding: '12px 8px', fontSize: 14, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}
+                    onClick={() => { if (window.confirm(`¿Descongelar el reloj de inactividad?\n\nMotivo: ${freeze.motivo}\nDesde: ${fmtFreezeDate(freeze.congelado_desde)}\n\nLos plazos de desafíos ya se aplazaron día a día durante el congelamiento.`)) descongelarGlobal() }}>
+                    <i className="ti ti-player-play" style={{ verticalAlign: -2, marginRight: 6 }} aria-hidden="true" />Descongelar
+                  </button>
+                  <button style={{ background: '#e3f7ee', border: '1px solid #7fd9a8', color: '#0c7a5f', borderRadius: 10, padding: '12px 8px', fontSize: 14, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}
+                    onClick={() => shareWA(msgCongelado())}>
+                    <i className="ti ti-brand-whatsapp" style={{ verticalAlign: -2, marginRight: 6 }} aria-hidden="true" />Compartir aviso
+                  </button>
+                </div>
               </>
+            )}
+
+            {/* Aviso WA de reactivación (tras descongelar) */}
+            {!freeze && postUnfreeze && (
+              <div style={{ background: '#F1EFE8', border: '1px solid #d8d7d0', borderRadius: 8, padding: '10px 12px', marginBottom: 10, fontSize: 12 }}>
+                <span style={{ color: '#555' }}>Reloj reactivado ({postUnfreeze.dias} día{postUnfreeze.dias === 1 ? '' : 's'} congelados).</span>
+                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                  <button style={{ flex: 1, background: '#e3f7ee', border: '1px solid #7fd9a8', color: '#0c7a5f', borderRadius: 8, padding: '8px', fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}
+                    onClick={() => shareWA(msgReactivado(postUnfreeze.dias))}>
+                    <i className="ti ti-brand-whatsapp" style={{ verticalAlign: -2, marginRight: 6 }} aria-hidden="true" />Compartir aviso
+                  </button>
+                  <button style={{ background: 'transparent', border: '1px solid #d8d7d0', color: '#888', borderRadius: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}
+                    onClick={() => setPostUnfreeze(null)}>Descartar</button>
+                </div>
+              </div>
             )}
 
             <button disabled={!!freeze} style={{ width: '100%', background: '#eef1f7', border: '1px solid #b9c6e0', color: '#274b8a', borderRadius: 10, padding: '14px 8px', fontSize: 14, fontWeight: 500, cursor: freeze ? 'not-allowed' : 'pointer', fontFamily: 'inherit', opacity: freeze ? 0.5 : 1 }}

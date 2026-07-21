@@ -47,17 +47,25 @@ export default function Desafios() {
   const [cancelReason, setCancelReason] = useState('')
   const [cancelOther, setCancelOther] = useState('')
   const [v2cfg, setV2cfg] = useState(null)
+  const [freeze, setFreeze] = useState(null)
 
   useEffect(() => { load() }, [])
 
   async function load() {
     try {
-      const [data, co, { data: cfg }] = await Promise.all([getChallenges(), getCourts(), supabase.from('v2_config').select('*').eq('id', 1).single()])
+      const [data, co, { data: cfg }, { data: fz }] = await Promise.all([getChallenges(), getCourts(), supabase.from('v2_config').select('*').eq('id', 1).single(), supabase.from('reloj_freeze_log').select('*').is('descongelado_en', null).maybeSingle()])
       setChallenges(data)
       setCourts(co)
       setV2cfg(cfg)
+      setFreeze(fz || null)
     } finally { setLoading(false) }
   }
+
+  // Indicador: con freeze global activo, los deadlines se deslizan +1/día,
+  // así que la fecha mostrada avanza sola. Se aclara el porqué.
+  const aplazTag = freeze
+    ? <span title="El reloj está congelado: los plazos se aplazan +1 día por cada día congelado" style={{ color: '#A32D2D', fontSize: 11, marginLeft: 6, whiteSpace: 'nowrap' }}>⏸️ aplazándose por congelamiento</span>
+    : null
 
   async function assignSlot() {
     const m = slotModal
@@ -240,7 +248,7 @@ export default function Desafios() {
                     Desafiaste a {c.challenged?.nombre} {c.challenged?.apellido}
                   </div>
                   <div style={{ fontSize: 12, color: '#888' }}>
-                    Esperando respuesta · vence {fmtDate(c.deadline)}
+                    Esperando respuesta · vence {fmtDate(c.deadline)}{aplazTag}
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
@@ -298,7 +306,7 @@ export default function Desafios() {
               <span style={{ color: '#888', fontSize: 12 }}>vs</span>
               <span style={{ fontSize: 13, fontWeight: 500 }}>{myActive.challenged?.nombre} {myActive.challenged?.apellido}</span>
               {myActive.deadline && (
-                <span style={{ marginLeft: 'auto', fontSize: 12, color: '#A32D2D' }}>vence {fmtDate(myActive.deadline)}</span>
+                <span style={{ marginLeft: 'auto', fontSize: 12, color: '#A32D2D' }}>vence {fmtDate(myActive.deadline)}{aplazTag}</span>
               )}
             </div>
 
@@ -396,7 +404,7 @@ export default function Desafios() {
                 <span className={`badge ${bCls[step] || 'badge-gray'}`}>{labels[step] || ''}</span>
                 {c.slot_day
                   ? <span style={{ fontSize: 11, color: '#888', marginLeft: 8 }}>{fmtDate(c.slot_day)}{c.slot_hour ? ` · ${c.slot_hour}` : ''}</span>
-                  : c.deadline && <span style={{ fontSize: 11, color: '#A32D2D', marginLeft: 8 }}>vence {fmtDate(c.deadline)}</span>
+                  : c.deadline && <span style={{ fontSize: 11, color: '#A32D2D', marginLeft: 8 }}>vence {fmtDate(c.deadline)}{aplazTag}</span>
                 }
               </div>
             )
