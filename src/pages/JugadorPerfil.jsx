@@ -30,6 +30,21 @@ function fmtDate(d) {
   } catch { return d }
 }
 
+function fmtDM(ts) {
+  if (!ts) return ''
+  const d = new Date(ts)
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+// Días calendario completos entre una fecha y hoy (mínimo 0).
+function diasHasta(ts) {
+  if (!ts) return null
+  const d = new Date(ts), hoy = new Date()
+  const a = Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())
+  const b = Date.UTC(hoy.getFullYear(), hoy.getMonth(), hoy.getDate())
+  return Math.max(0, Math.round((b - a) / 86400000))
+}
+
 function courtDot(courtId) {
   const isHard = courtId === 'c3'
   return <span style={{
@@ -48,6 +63,7 @@ export default function JugadorPerfil() {
   const [activeChallenge, setActiveChallenge] = useState(null)
   const [freeze, setFreeze] = useState(null)
   const [pausedByChallenge, setPausedByChallenge] = useState(false)
+  const [showRelojInfo, setShowRelojInfo] = useState(false)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => { load() }, [id])
@@ -99,6 +115,26 @@ export default function JugadorPerfil() {
   ).length
   const h2hWinsRival = h2h.length - h2hWinsMe
 
+  // ── Reloj de inactividad (fuente única: contador dias_inactivo) ──────
+  const debutante = (jugador.victorias || 0) === 0 && (jugador.derrotas || 0) === 0
+  const diasInact = jugador.dias_inactivo || 0
+  const diasDesdeUltimo = diasHasta(jugador.ultima_fecha_jugada)      // null si nunca jugó
+  const sinReloj = debutante || !jugador.ultima_fecha_jugada
+  // Días en que el reloj NO avanzó (pausas por desafío + congelamientos globales).
+  const diasPausados = diasDesdeUltimo != null ? Math.max(0, diasDesdeUltimo - diasInact) : 0
+  let relojEstado, relojColor
+  if (debutante) { relojEstado = 'sin reloj (aún no debuta)'; relojColor = '#888' }
+  else if (freeze) { relojEstado = `congelado (${freeze.motivo})`; relojColor = '#A32D2D' }
+  else if (jugador.inactividad_congelada) { relojEstado = 'congelado (reloj individual)'; relojColor = '#185FA5' }
+  else if (pausedByChallenge) { relojEstado = 'pausado por desafío activo'; relojColor = '#0F6E56' }
+  else { relojEstado = 'corriendo'; relojColor = '#888' }
+  let proximoUmbral
+  if (diasInact < 14) proximoUmbral = 'a los 14 días: baja 2 puestos'
+  else if (diasInact < 21) proximoUmbral = 'a los 21 días: baja 1 puesto'
+  else if (diasInact < 28) proximoUmbral = 'a los 28 días: baja 1 puesto + insignia de lesionado'
+  else proximoUmbral = 'baja 1 puesto cada 7 días adicionales'
+  const haceTxt = diasDesdeUltimo === 0 ? 'hoy' : diasDesdeUltimo === 1 ? 'hace 1 día' : `hace ${diasDesdeUltimo} días`
+
   return (
     <div>
       <button className="btn" style={{ fontSize: 12, marginBottom: 12 }} onClick={() => navigate(-1)}>
@@ -141,23 +177,60 @@ export default function JugadorPerfil() {
       </div>
 
       {/* Reloj de inactividad — fuente única: contador dias_inactivo */}
-      {(() => {
-        const debutante = (jugador.victorias || 0) === 0 && (jugador.derrotas || 0) === 0
-        let estado, color
-        if (debutante) { estado = 'sin reloj (aún no debuta)'; color = '#888' }
-        else if (freeze) { estado = `congelado (${freeze.motivo})`; color = '#A32D2D' }
-        else if (jugador.inactividad_congelada) { estado = 'congelado (reloj individual)'; color = '#185FA5' }
-        else if (pausedByChallenge) { estado = 'pausado por desafío activo'; color = '#0F6E56' }
-        else { estado = 'corriendo'; color = '#888' }
-        return (
-          <div className="card" style={{ marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 13, color: '#555' }}>
-              Días de inactividad: <strong>{debutante ? '—' : (jugador.dias_inactivo || 0)}</strong>
-            </span>
-            <span style={{ fontSize: 12, color, fontWeight: 500 }}>{estado}</span>
+      <div className="card" style={{ marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <span style={{ fontSize: 13, color: '#555', display: 'inline-flex', alignItems: 'center' }}>
+          Días de inactividad
+          <button onClick={() => setShowRelojInfo(true)} aria-label="¿Cómo funciona el reloj de inactividad?"
+            style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#aaa', padding: '2px 6px', lineHeight: 1, display: 'inline-flex', alignItems: 'center' }}>
+            <i className="ti ti-info-circle" style={{ fontSize: 16 }} aria-hidden="true" />
+          </button>
+          : <strong style={{ marginLeft: 2 }}>{debutante ? '—' : diasInact}</strong>
+        </span>
+        <span style={{ fontSize: 12, color: relojColor, fontWeight: 500, textAlign: 'right' }}>{relojEstado}</span>
+      </div>
+
+      {/* Popup explicativo del reloj de inactividad */}
+      {showRelojInfo && (
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setShowRelojInfo(false) }}>
+          <div className="modal">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+              <h3 style={{ margin: 0 }}>Reloj de inactividad</h3>
+              <button onClick={() => setShowRelojInfo(false)} aria-label="Cerrar"
+                style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#888', fontSize: 20, lineHeight: 1, padding: 0 }}>
+                <i className="ti ti-x" aria-hidden="true" />
+              </button>
+            </div>
+
+            <div style={{ fontSize: 13, color: '#444', marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div>Días de inactividad: <strong>{sinReloj ? '—' : diasInact}</strong></div>
+
+              {sinReloj ? (
+                <div style={{ color: '#666' }}>
+                  Aún no juega su primer partido — el reloj parte con su primer resultado.
+                </div>
+              ) : (
+                <>
+                  <div>Último partido: <strong>{fmtDM(jugador.ultima_fecha_jugada)}</strong> ({haceTxt})</div>
+                  <div>
+                    Días pausados o congelados: <strong>{diasPausados}</strong>
+                    <div style={{ fontSize: 11, color: '#888', marginTop: 1 }}>(desafíos activos y congelamientos globales pausan el reloj)</div>
+                  </div>
+                  <div>Estado actual: <span style={{ color: relojColor, fontWeight: 500 }}>{relojEstado}</span></div>
+                  <div>Próximo umbral: <strong>{proximoUmbral}</strong></div>
+                </>
+              )}
+            </div>
+
+            <div style={{ fontSize: 11, color: '#888', marginTop: 12, borderTop: '1px solid #ecece4', paddingTop: 10 }}>
+              El reloj suma 1 día por cada día sin jugar. Se reinicia a 0 al jugar. Se pausa con desafío pendiente/aceptado o cuando el admin congela el reloj.
+            </div>
+
+            <div className="modal-actions">
+              <button className="btn" onClick={() => setShowRelojInfo(false)}>Entendido</button>
+            </div>
           </div>
-        )
-      })()}
+        </div>
+      )}
 
       {/* Estado actual de esta semana */}
       <div className="card" style={{ marginBottom: 10 }}>
