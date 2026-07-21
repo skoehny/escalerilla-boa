@@ -15,9 +15,13 @@ function fmtShortDate(d) {
 
 // Fuente ÚNICA de la inactividad: el contador incremental players.dias_inactivo
 // (NO se calcula desde fechas: así respeta el congelamiento global y las pausas).
+// S y D se DERIVAN del mismo contador (S = semanas completas, D = resto): así
+// "1S 6D" son 13 días, no "1 semana + 13 días". El "D" indica cuán cerca está
+// del próximo castigo: con D=6, al día siguiente cruza un umbral múltiplo de 7.
 function playerInactivity(p) {
-  if (!p.semanas_inactivo) return null
-  return `${p.semanas_inactivo}S ${p.dias_inactivo || 0}D`
+  const dias = p.dias_inactivo || 0
+  if (dias < 7) return null   // mismo umbral que antes (se ocultaba con semanas_inactivo=0)
+  return `${Math.floor(dias / 7)}S ${dias % 7}D`
 }
 
 function fmtDM(ts) {
