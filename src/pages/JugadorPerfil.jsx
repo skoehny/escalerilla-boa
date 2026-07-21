@@ -5,6 +5,26 @@ import { useSession } from '../components/SessionContext'
 
 function ini(n, a) { return ((n?.[0] || '') + (a?.[0] || '')).toUpperCase() }
 
+// Iconos como SVG inline (no dependen de la webfont de Tabler, que renderiza
+// vacío cuando el <i> es el único hijo flex de un <button>). Paths = tabler.
+function InfoIcon({ size = 16 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="10" />
+      <line x1="12" y1="11" x2="12" y2="16" />
+      <line x1="12" y1="8" x2="12.01" y2="8" />
+    </svg>
+  )
+}
+function CloseIcon({ size = 18 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <line x1="18" y1="6" x2="6" y2="18" />
+      <line x1="6" y1="6" x2="18" y2="18" />
+    </svg>
+  )
+}
+
 // Fuente ÚNICA de la inactividad: el contador incremental players.dias_inactivo
 // (NO se calcula desde fechas: así respeta el congelamiento global y las pausas).
 function inactivityTime(player) {
@@ -179,12 +199,11 @@ export default function JugadorPerfil() {
       {/* Reloj de inactividad — fuente única: contador dias_inactivo */}
       <div className="card" style={{ marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
         <span style={{ fontSize: 13, color: '#555', display: 'inline-flex', alignItems: 'center' }}>
-          Días de inactividad
+          Días de inactividad: <strong style={{ margin: '0 4px' }}>{debutante ? '—' : diasInact}</strong>
           <button onClick={() => setShowRelojInfo(true)} aria-label="¿Cómo funciona el reloj de inactividad?"
-            style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#aaa', padding: '2px 6px', lineHeight: 1, display: 'inline-flex', alignItems: 'center' }}>
-            <i className="ti ti-info-circle" style={{ fontSize: 16 }} aria-hidden="true" />
+            style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#888', padding: 6, lineHeight: 0, display: 'inline-flex', alignItems: 'center' }}>
+            <InfoIcon />
           </button>
-          : <strong style={{ marginLeft: 2 }}>{debutante ? '—' : diasInact}</strong>
         </span>
         <span style={{ fontSize: 12, color: relojColor, fontWeight: 500, textAlign: 'right' }}>{relojEstado}</span>
       </div>
@@ -196,8 +215,8 @@ export default function JugadorPerfil() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
               <h3 style={{ margin: 0 }}>Reloj de inactividad</h3>
               <button onClick={() => setShowRelojInfo(false)} aria-label="Cerrar"
-                style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#888', fontSize: 20, lineHeight: 1, padding: 0 }}>
-                <i className="ti ti-x" aria-hidden="true" />
+                style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#888', lineHeight: 0, padding: 4, display: 'inline-flex', alignItems: 'center' }}>
+                <CloseIcon />
               </button>
             </div>
 
