@@ -142,10 +142,15 @@ export default function JugadorPerfil() {
   // ── Reloj de inactividad (fuente única: contador dias_inactivo) ──────
   const debutante = (jugador.victorias || 0) === 0 && (jugador.derrotas || 0) === 0
   const diasInact = jugador.dias_inactivo || 0
+  // Residuo histórico del saneo de julio 2026 (mig 027): NO es una pausa real, es
+  // un desfase de datos. Se descuenta del cálculo de pausados y se muestra aparte.
+  // Desaparece (se pone en 0) cuando el jugador juega su próximo partido.
+  const diasAjusteSaneo = jugador.dias_ajuste_saneo || 0
   const diasDesdeUltimo = diasHasta(jugador.ultima_fecha_jugada)      // null si nunca jugó
   const sinReloj = debutante || !jugador.ultima_fecha_jugada
-  // Días en que el reloj NO avanzó (pausas por desafío + congelamientos globales).
-  const diasPausados = diasDesdeUltimo != null ? Math.max(0, diasDesdeUltimo - diasInact) : 0
+  // Días en que el reloj NO avanzó (pausas por desafío + congelamientos globales),
+  // sin contar el residuo histórico del saneo.
+  const diasPausados = diasDesdeUltimo != null ? Math.max(0, diasDesdeUltimo - diasInact - diasAjusteSaneo) : 0
   let relojEstado, relojColor
   if (debutante) { relojEstado = 'sin reloj (aún no debuta)'; relojColor = '#888' }
   else if (freeze) { relojEstado = `congelado (${freeze.motivo})`; relojColor = '#A32D2D' }
@@ -238,6 +243,12 @@ export default function JugadorPerfil() {
                     Días pausados o congelados: <strong>{diasPausados}</strong>
                     <div style={{ fontSize: 11, color: '#888', marginTop: 1 }}>(desafíos activos y congelamientos globales pausan el reloj)</div>
                   </div>
+                  {diasAjusteSaneo > 0 && (
+                    <div style={{ color: '#888' }}>
+                      Ajuste histórico: <strong>{diasAjusteSaneo}</strong> días
+                      <div style={{ fontSize: 11, color: '#aaa', marginTop: 1 }}>(corrección de datos de julio 2026; desaparece al jugar tu próximo partido)</div>
+                    </div>
+                  )}
                   <div>Estado actual: <span style={{ color: relojColor, fontWeight: 500 }}>{relojEstado}</span></div>
                   <div>Próximo umbral: <strong>{proximoUmbral}</strong></div>
                 </>
