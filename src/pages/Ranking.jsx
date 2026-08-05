@@ -110,6 +110,20 @@ export default function Ranking() {
 
   if (loading) return <p style={{ color: '#888', fontSize: 13, textAlign: 'center', padding: 24 }}>Cargando ranking...</p>
 
+  // Elegibles: los N rivales NO lesionados más cercanos hacia arriba (regla 1).
+  // Los lesionados NO ocupan cupo: se saltan. Los que ya tienen un desafío activo
+  // SÍ lo ocupan (entran en la lista y los frena targetHasActive, igual que la RPC).
+  // La UI filtra por UX; la RPC crear_desafio es la ley.
+  const myPos = player?.posicion || 999
+  const maxPuestos = v2cfg?.max_puestos_desafio ?? 4
+  const elegibles = new Set(
+    players
+      .filter(p => p.posicion < myPos && !p.lesionado)
+      .sort((a, b) => b.posicion - a.posicion)   // del más cercano hacia arriba
+      .slice(0, maxPuestos)
+      .map(p => p.id)
+  )
+
   return (
     <div>
       {notif && <div className={`notif notif-${notif.type}`}><i className={`ti ti-${notif.type === 'ok' ? 'check' : 'alert-triangle'}`} aria-hidden="true" /> {notif.msg}</div>}
@@ -142,7 +156,7 @@ export default function Ranking() {
 
       {player?.lesionado && (
         <div className="notif notif-err" style={{ marginBottom: 10 }}>
-          <i className="ti ti-first-aid-kit" aria-hidden="true" /> Estás marcado como lesionado{player.lesion_nota ? ` — ${player.lesion_nota}` : ''}. No puedes recibir desafíos.
+          <i className="ti ti-first-aid-kit" aria-hidden="true" /> Estás marcado como lesionado{player.lesion_nota ? ` — ${player.lesion_nota}` : ''}. No puedes recibir desafíos, pero sí enviar (te reactiva).
         </div>
       )}
 
@@ -161,12 +175,9 @@ export default function Ranking() {
             (c.status === 'pending' || c.status === 'accepted' ||
              (c.status === 'completed' && c.ranking_applied === false))
           )
-          // Rango de desafío: hasta max_puestos_desafio puestos hacia arriba (regla 3).
-          // La UI filtra por UX; la RPC crear_desafio es la ley.
-          const myPos = player?.posicion || 999
-          const maxPuestos = v2cfg?.max_puestos_desafio ?? 4
-          const inRange = p.posicion < myPos && p.posicion >= myPos - maxPuestos
-          const canChallenge = !isMe && inRange && !p.lesionado && !player?.lesionado && !hasActive && !targetHasActive
+          // Estar lesionado NO impide desafiar: crear el desafío te reactiva (lo hace la RPC).
+          const inRange = elegibles.has(p.id)
+          const canChallenge = !isMe && inRange && !p.lesionado && !hasActive && !targetHasActive
 
           return (
             <div key={p.id} className="row-item" style={isMe ? { background: '#f5f4f0', borderRadius: 8, padding: '8px', margin: '0 -6px' } : {}}>
@@ -189,7 +200,7 @@ export default function Ranking() {
                   Desafiar
                 </button>
               )}
-              {!canChallenge && !isMe && !hasActive && !player?.lesionado && !p.lesionado && !targetHasActive
+              {!canChallenge && !isMe && !hasActive && !p.lesionado && !targetHasActive
                 && !player?.wildcard_usada && p.posicion < myPos
                 && !inRange && (
                 <button className="btn btn-warn" style={{ padding: '3px 10px', fontSize: 12 }}

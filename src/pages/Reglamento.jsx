@@ -23,7 +23,7 @@ export default function Reglamento() {
   const horasWo = cfg?.horas_wo_cancelacion ?? 24
 
   const faqs = [
-    { q: '¿A quién puedo desafiar?', a: `Hasta ${rango} puestos por encima tuyo, siempre que el rival no esté lesionado y ninguno de los dos tenga ya un desafío activo. Con la Wild Card puedes desafiar a cualquiera por encima, sin límite de rango.` },
+    { q: '¿A quién puedo desafiar?', a: `A los ${rango} rivales disponibles más cercanos por encima tuyo, siempre que ninguno de los dos tenga ya un desafío activo. Los lesionados no pueden ser desafiados y no ocupan cupo: se saltan y entra el siguiente sano más arriba, así que siempre tienes ${rango} rivales disponibles (salvo que queden menos de ${rango} jugadores sobre ti). Con la Wild Card puedes desafiar a cualquiera por encima, sin límite de rango.` },
     { q: '¿Qué pasa si no juego? (inactividad)', a: 'El reloj cuenta los días sin jugar desde tu último partido. A los 14 días bajas 2 puestos; a los 21, 1 más; a los 28, 1 más y quedas lesionado; y 1 más por cada 7 días extra. Tener un desafío activo (pendiente o aceptado) pausa el reloj.' },
     { q: '¿Qué es la Wild Card?', a: 'Cada jugador tiene 1 Wild Card al año (se resetea el 1 de enero) para desafiar a cualquier posición por encima sin límite de rango.' },
     { q: '¿Qué pasa si me cancelan tarde?', a: `Si tu rival cancela un desafío con cancha reservada a menos de ${horasWo} horas del partido, puedes marcarle un WO a tu favor.` },
@@ -45,7 +45,7 @@ export default function Reglamento() {
 
       <Rule n="1" title="Sistema de ranking y desafíos">
         <p>El ranking es una lista ordenada de jugadores según su nivel demostrado en cancha. Solo puntúa ganar partidos, no los games por partido.</p>
-        <p style={{ marginTop: 8 }}><strong>Rango de desafío:</strong> Puedes desafiar hasta 4 posiciones por encima (el rango lo define la administración y puede ajustarse). Los jugadores lesionados no pueden ser desafiados.</p>
+        <p style={{ marginTop: 8 }}><strong>Rango de desafío:</strong> Puedes desafiar a los <strong>{rango} rivales disponibles más cercanos</strong> por encima tuyo (el rango lo define la administración y puede ajustarse). Los jugadores lesionados no pueden ser desafiados, pero <strong>no ocupan cupo</strong>: se saltan y entra el siguiente sano más arriba, así que siempre tienes {rango} rivales disponibles por encima (salvo que queden menos de {rango} jugadores sobre ti en la escalerilla).</p>
         <p style={{ marginTop: 8 }}><strong>Wild Card:</strong> Cada jugador tiene 1 Wild Card por año (se resetea el 1 de enero) que permite desafiar a cualquier posición por encima, sin límite de rango.</p>
         <p style={{ marginTop: 8 }}><strong>Si gana el desafiante:</strong> Sube a la posición del derrotado. El derrotado y todos los jugadores entre ambos bajan una posición. <strong>El ranking se actualiza al instante</strong>, apenas se registra el resultado.</p>
         <p style={{ marginTop: 8 }}><strong>Si gana el desafiado:</strong> El ranking no se mueve.</p>
