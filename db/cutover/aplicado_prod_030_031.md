@@ -139,7 +139,9 @@ que no se agregaron cooldowns ni límites de lesiones.
 
 ### Verificación en TEST antes de aplicar
 
-`db/cutover/test_031_lider_reloj_condicional.mjs` — 12 escenarios, 24 asserts, todo dentro de una
+La suite vive hoy en `db/cutover/test_032_reloj_sin_rivales.mjs` (se renombró al generalizar la
+regla en la mig 032; estos escenarios siguen ahí como bloque de regresión). Cuando se aplicó la
+031 era `test_031_lider_reloj_condicional.mjs` — 12 escenarios, 24 asserts, todo dentro de una
 transacción que termina en `ROLLBACK`. Cubre: #1 sano congelado, reloj sucio congelado sin
 auto-lesión, jugar como único reinicio, el ciclo lesión/alta completo, el #1 lesionado cruzando
 14/21/28, el nuevo #1 conservando su reloj, la nota de lesión manual sobreviviendo al cron, la
