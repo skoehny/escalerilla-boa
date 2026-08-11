@@ -1,3 +1,32 @@
+-- #####################################################################
+-- ##  DESCARTADO — NO SE CORRIÓ EN PRODUCCIÓN. NO LO CORRAS.         ##
+-- #####################################################################
+--
+-- DECISIÓN (2026-08-10, Sebastián): la remediación NO se ejecuta. La regla nueva
+-- estrena con el reloj limpio.
+--
+-- MOTIVO
+--   El 0 de Gabriel Rubilar no viene de su comportamiento: viene de reparar un
+--   error del sistema (el cron lo penalizó estando en la #1). Reponerle 14 días de
+--   inactividad sería hacerle cargar con la consecuencia de un bug nuestro. Se
+--   prefiere estrenar la regla de congelamiento partiendo de cero: desde acá, todo
+--   lo que muestre su reloj será producto de la regla nueva y no del incidente.
+--   Felipe Larrain queda igual, con su déficit de 2 días — irrelevante frente a un
+--   umbral de 14, y desaparece solo en cuanto juegue.
+--
+-- ⚠ POR QUÉ ESTE AVISO Y NO BORRAR EL ARCHIVO
+--   Se conserva como registro del análisis (el cálculo del offset y por qué no se
+--   puede reconstruir el reloj desde ultima_fecha_jugada siguen siendo válidos y
+--   útiles si algún día hay que rehacer algo parecido).
+--   Y OJO: las guardas de idempotencia del PASO 2 **no protegen contra correrlo por
+--   error**. Esas guardas buscan el rastro que deja la propia restauración en
+--   ranking_log — y como nunca se corrió, ese rastro no existe: el script se
+--   ejecutaría completo y modificaría los relojes de los dos jugadores. La única
+--   protección real es este aviso.
+--
+-- Historia completa del episodio: db/cutover/aplicado_prod_030_031.md
+-- #####################################################################
+
 -- REMEDIACIÓN DE DATOS tras la mig 031 (one-shot, PROD, a mano)
 -- =====================================================================
 -- GABRIEL RUBILAR VUELVE A ESTAR EN ESTE SCRIPT
