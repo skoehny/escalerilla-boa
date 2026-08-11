@@ -151,14 +151,22 @@ export default function JugadorPerfil() {
   // Días en que el reloj NO avanzó (pausas por desafío + congelamientos globales),
   // sin contar el residuo histórico del saneo.
   const diasPausados = diasDesdeUltimo != null ? Math.max(0, diasDesdeUltimo - diasInact - diasAjusteSaneo) : 0
+  // El #1 está protegido mientras sea DESAFIABLE (mig 031): sano, su reloj queda
+  // CONGELADO en el valor que tenga (no avanza ni penaliza, pero tampoco se borra —
+  // solo jugar lo reinicia); lesionado, el reloj corre desde ahí con los umbrales
+  // normales, porque si no la punta quedaría bloqueada (nadie puede desafiarlo).
+  const esLiderSano = jugador.posicion === 1 && !jugador.lesionado
+  const esLiderLesionado = jugador.posicion === 1 && !!jugador.lesionado
   let relojEstado, relojColor
   if (debutante) { relojEstado = 'sin reloj (aún no debuta)'; relojColor = '#888' }
   else if (freeze) { relojEstado = `congelado (${freeze.motivo})`; relojColor = '#A32D2D' }
   else if (jugador.inactividad_congelada) { relojEstado = 'congelado (reloj individual)'; relojColor = '#185FA5' }
   else if (pausedByChallenge) { relojEstado = 'pausado por desafío activo'; relojColor = '#0F6E56' }
+  else if (esLiderSano) { relojEstado = 'congelado (#1 desafiable)'; relojColor = '#0F6E56' }
   else { relojEstado = 'corriendo'; relojColor = '#888' }
   let proximoUmbral
-  if (diasInact < 14) proximoUmbral = 'a los 14 días: baja 2 puestos'
+  if (esLiderSano) proximoUmbral = null
+  else if (diasInact < 14) proximoUmbral = 'a los 14 días: baja 2 puestos'
   else if (diasInact < 21) proximoUmbral = 'a los 21 días: baja 1 puesto'
   else if (diasInact < 28) proximoUmbral = 'a los 28 días: baja 1 puesto + insignia de lesionado'
   else proximoUmbral = 'baja 1 puesto cada 7 días adicionales'
@@ -250,13 +258,33 @@ export default function JugadorPerfil() {
                     </div>
                   )}
                   <div>Estado actual: <span style={{ color: relojColor, fontWeight: 500 }}>{relojEstado}</span></div>
-                  <div>Próximo umbral: <strong>{proximoUmbral}</strong></div>
+                  {esLiderSano ? (
+                    <div>
+                      Próximo umbral: <strong>ninguno mientras sea #1</strong>
+                      <div style={{ fontSize: 11, color: '#888', marginTop: 1 }}>
+                        El #1 no puede desafiar a nadie, solo ser desafiado: mientras esté sano su reloj queda
+                        congelado en <strong>{diasInact}</strong> días — no avanza ni penaliza, pero tampoco se
+                        borra. Solo jugar lo reinicia a 0; si se lesiona, sigue corriendo desde ahí.
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      Próximo umbral: <strong>{proximoUmbral}</strong>
+                      {esLiderLesionado && (
+                        <div style={{ fontSize: 11, color: '#A32D2D', marginTop: 1 }}>
+                          Lesionado: el reloj corre aunque seas #1, para no bloquear la punta (nadie puede
+                          desafiar a un lesionado). Al darte de alta desde tu perfil se congela donde esté
+                          —no vuelve a 0—, así que los días lesionado se van sumando.
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </>
               )}
             </div>
 
             <div style={{ fontSize: 11, color: '#888', marginTop: 12, borderTop: '1px solid #ecece4', paddingTop: 10 }}>
-              El reloj suma 1 día por cada día sin jugar. Se reinicia a 0 al jugar. Se pausa con desafío pendiente/aceptado o cuando el admin congela el reloj.
+              El reloj suma 1 día por cada día sin jugar. Se reinicia a 0 al jugar. Se pausa con desafío pendiente/aceptado, cuando el admin congela el reloj, o mientras el #1 esté sano. Si el #1 se lesiona, su reloj corre desde donde quedó.
             </div>
 
             <div className="modal-actions">
