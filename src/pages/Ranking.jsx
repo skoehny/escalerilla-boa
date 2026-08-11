@@ -13,6 +13,10 @@ function fmtShortDate(d) {
   } catch { return d }
 }
 
+// El #1 sano puede mostrar un valor CONGELADO (mig 031: su reloj no avanza mientras
+// esté sano en la punta, pero conserva lo acumulado). Se muestra igual: es
+// información verdadera —cuánto lleva sin jugar el líder— y no bloquea desafiarlo,
+// porque canChallenge solo mira lesionado / desafío activo.
 // Fuente ÚNICA de la inactividad: el contador incremental players.dias_inactivo
 // (NO se calcula desde fechas: así respeta el congelamiento global y las pausas).
 // S y D se DERIVAN del mismo contador (S = semanas completas, D = resto): así
